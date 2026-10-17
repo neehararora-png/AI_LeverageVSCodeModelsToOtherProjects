@@ -172,6 +172,17 @@ function createBridgeRequestHandler(options = {}) {
     }
 
     const method = String(request.method || 'GET').toUpperCase();
+    const allowedMethod = pathname === '/v1/health' || pathname === '/v1/models'
+      ? 'GET'
+      : pathname === '/v1/generate' ? 'POST' : null;
+    if (allowedMethod && method !== allowedMethod) {
+      respond(405, {
+        ok: false,
+        error: { code: 'method_not_allowed', message: 'Method not allowed.', requestId }
+      }, { Allow: allowedMethod });
+      return;
+    }
+
     const abortController = new AbortController();
     const onRequestAborted = () => abortController.abort();
     const onResponseClosed = () => {
@@ -184,16 +195,6 @@ function createBridgeRequestHandler(options = {}) {
     }
     if (typeof response.once === 'function') {
       response.once('close', onResponseClosed);
-    }
-    const allowedMethod = pathname === '/v1/health' || pathname === '/v1/models'
-      ? 'GET'
-      : pathname === '/v1/generate' ? 'POST' : null;
-    if (allowedMethod && method !== allowedMethod) {
-      respond(405, {
-        ok: false,
-        error: { code: 'method_not_allowed', message: 'Method not allowed.', requestId }
-      }, { Allow: allowedMethod });
-      return;
     }
 
     try {
