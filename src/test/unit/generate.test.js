@@ -70,3 +70,35 @@ test('client cancellation cancels an in-flight model request promptly', async ()
   assert.equal(setup.state.cancelled, 1);
   assert.equal(setup.state.disposed, 1);
 });
+
+test('generation timeout also bounds a stalled user approval prompt', async () => {
+  const setup = dependencies({
+    requestTimeoutMs: 10,
+    confirmModelRequest: () => new Promise(() => {}),
+    chatClient: { generate: () => assert.fail('model must not run before approval') }
+  });
+
+  const result = await handleGenerate(request, setup.options);
+
+  assert.equal(result.statusCode, 504);
+  assert.equal(result.payload.error.code, 'request_timeout');
+  assert.equal(setup.state.cancelled, 1);
+  assert.equal(setup.state.disposed, 1);
+});
+
+test('client disconnect during approval cancels without starting generation', async () => {
+  const controller = new AbortController();
+  const setup = dependencies({
+    confirmModelRequest: () => new Promise(() => {}),
+    chatClient: { generate: () => assert.fail('model must not run after disconnect') }
+  });
+  const pending = handleGenerate({ ...request, signal: controller.signal }, setup.options);
+  setImmediate(() => controller.abort());
+
+  const result = await pending;
+
+  assert.equal(result.statusCode, 499);
+  assert.equal(result.payload.error.code, 'client_disconnected');
+  assert.equal(setup.state.cancelled, 1);
+  assert.equal(setup.state.disposed, 1);
+});
