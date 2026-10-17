@@ -95,7 +95,14 @@ async function dispatch(request, dependencies = {}) {
       request.parsedBody = validateBody(request.bodyText || '');
     }
     const handler = handlers[pathname];
-    const result = await handler({ method, headers, body: request.parsedBody || {}, requestId, logger });
+    const result = await handler({
+      method,
+      headers,
+      body: request.parsedBody || {},
+      requestId,
+      logger,
+      signal: request.signal
+    });
     return {
       statusCode: result && result.statusCode ? result.statusCode : 200,
       payload: result && result.payload ? result.payload : result

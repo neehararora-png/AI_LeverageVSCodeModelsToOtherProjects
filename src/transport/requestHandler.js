@@ -127,13 +127,15 @@ function createBridgeRequestHandler(options = {}) {
           }));
         return { statusCode: 200, payload: { ok: true, models, requestId } };
       },
-      async '/v1/generate'({ body, requestId }) {
+      async '/v1/generate'({ body, requestId, signal }) {
         const availableModels = await getAvailableModels();
-        return handleGenerate({ ...body, requestId }, {
+        return handleGenerate({ ...body, requestId, signal }, {
           availableModels,
           allowedFamilies: options.allowedModelFamilies,
           chatClient,
-          confirmModelRequest: options.confirmModelRequest
+          confirmModelRequest: options.confirmModelRequest,
+          requestTimeoutMs: options.requestTimeoutMs,
+          cancellationTokenSourceFactory: options.cancellationTokenSourceFactory
         });
       }
     }
@@ -170,6 +172,19 @@ function createBridgeRequestHandler(options = {}) {
     }
 
     const method = String(request.method || 'GET').toUpperCase();
+    const abortController = new AbortController();
+    const onRequestAborted = () => abortController.abort();
+    const onResponseClosed = () => {
+      if (!response.writableEnded) {
+        abortController.abort();
+      }
+    };
+    if (typeof request.once === 'function') {
+      request.once('aborted', onRequestAborted);
+    }
+    if (typeof response.once === 'function') {
+      response.once('close', onResponseClosed);
+    }
     const allowedMethod = pathname === '/v1/health' || pathname === '/v1/models'
       ? 'GET'
       : pathname === '/v1/generate' ? 'POST' : null;
@@ -187,6 +202,7 @@ function createBridgeRequestHandler(options = {}) {
         pathname,
         headers: request.headers,
         requestId,
+        signal: abortController.signal,
         readBody: () => {
           const contentType = String(request.headers?.['content-type'] || request.headers?.['Content-Type'] || '');
           if (!/^application\/json(?:\s*;|\s*$)/i.test(contentType)) {
@@ -204,6 +220,13 @@ function createBridgeRequestHandler(options = {}) {
         ok: false,
         error: { code: 'internal_error', message: 'Request could not be completed.', requestId }
       });
+    } finally {
+      if (typeof request.removeListener === 'function') {
+        request.removeListener('aborted', onRequestAborted);
+      }
+      if (typeof response.removeListener === 'function') {
+        response.removeListener('close', onResponseClosed);
+      }
     }
   };
 }

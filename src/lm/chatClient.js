@@ -46,7 +46,7 @@ function createChatClient(vscodeApi = null, options = {}) {
 
     const response = await model.sendRequest(messages, {
       justification: 'A trusted local application requested a response through the VS Code bridge.'
-    }, options.cancellationToken);
+    }, payload.cancellationToken || options.cancellationToken);
     if (!response || !response.text || typeof response.text[Symbol.asyncIterator] !== 'function') {
       throw buildError('model_error', 'Language model returned an unsupported response');
     }
