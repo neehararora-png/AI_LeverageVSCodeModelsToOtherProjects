@@ -3,9 +3,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const { Readable } = require('node:stream');
 
-const { createBridgeRequestHandler } = require('../../transport/requestHandler');
+const { createBridgeRequestHandler, readBoundedBody } = require('../../transport/requestHandler');
 
 async function send(handler, method, url, headers = {}, body = '') {
   const request = Readable.from(body ? [Buffer.from(body)] : []);
@@ -99,6 +100,20 @@ test('request handler rejects oversized generate bodies with 413', async () => {
   }, JSON.stringify({ model: 'copilot', messages: [{ role: 'user', content: 'this body is over the configured limit' }] }));
   assert.equal(result.statusCode, 413);
   assert.equal(result.body.error.code, 'payload_too_large');
+});
+
+test('bounded body reader pauses an oversized stream without waiting for its end', async () => {
+  class FakeRequest extends EventEmitter {
+    paused = false;
+    pause() { this.paused = true; }
+  }
+  const request = new FakeRequest();
+  const body = readBoundedBody(request, 4);
+
+  request.emit('data', Buffer.from('oversized'));
+
+  await assert.rejects(body, { code: 'payload_too_large' });
+  assert.equal(request.paused, true);
 });
 
 test('request handler reports unavailable model instead of returning mock output', async () => {

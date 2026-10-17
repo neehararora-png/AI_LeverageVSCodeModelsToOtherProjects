@@ -14,37 +14,48 @@ function readBoundedBody(request, maxBodyBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
-    let oversized = false;
+    let settled = false;
+
+    const rejectOnce = (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
 
     request.on('data', (chunk) => {
-      if (oversized) {
+      if (settled) {
         return;
       }
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       size += buffer.length;
       if (size > maxBodyBytes) {
-        oversized = true;
         chunks.length = 0;
+        if (typeof request.pause === 'function') {
+          request.pause();
+        }
+        const error = new Error('Request body exceeds allowed size');
+        error.code = 'payload_too_large';
+        rejectOnce(error);
         return;
       }
       chunks.push(buffer);
     });
 
     request.on('end', () => {
-      if (oversized) {
-        const error = new Error('Request body exceeds allowed size');
-        error.code = 'payload_too_large';
-        reject(error);
+      if (settled) {
         return;
       }
+      settled = true;
       resolve(Buffer.concat(chunks).toString('utf8'));
     });
 
-    request.on('error', reject);
+    request.on('error', rejectOnce);
     request.on('aborted', () => {
       const error = new Error('Request body was aborted');
       error.code = 'invalid_request';
-      reject(error);
+      rejectOnce(error);
     });
   });
 }
