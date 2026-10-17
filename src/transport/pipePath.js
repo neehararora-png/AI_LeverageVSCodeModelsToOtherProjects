@@ -29,7 +29,7 @@ function thePipePath(override = '') {
   if (!PIPE_NAME_RE.test(name)) {
     throw new Error('Unsafe pipe name');
   }
-  return `\\.\\pipe\\${name}`;
+  return `\\\\.\\pipe\\${name}`;
 }
 
 module.exports = {

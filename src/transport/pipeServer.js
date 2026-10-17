@@ -4,7 +4,7 @@
 const http = require('node:http');
 
 function createPipeServer({ pipePath, requestHandler = () => {}, onError = () => {} } = {}) {
-  if (typeof pipePath !== 'string' || !pipePath.includes('\\.\\pipe\\')) {
+  if (typeof pipePath !== 'string' || !pipePath.startsWith('\\\\.\\pipe\\')) {
     throw new Error('Invalid pipe path');
   }
 

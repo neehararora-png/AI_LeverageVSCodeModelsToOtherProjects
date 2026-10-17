@@ -42,6 +42,7 @@ test('pipe name derivation is stable and safe', () => {
   const derived = derivePipeName('machine-name');
   assert.ok(derived.startsWith('vscode-browser-bridge-'));
   const pathA = thePipePath('bridge-test');
+  assert.ok(pathA.startsWith('\\\\.\\pipe\\'));
   assert.ok(pathA.includes('pipe'));
   assert.ok(pathA.endsWith('bridge-test'));
   assert.doesNotThrow(() => thePipePath('my_bridge-1'));
