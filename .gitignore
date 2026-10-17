@@ -1,0 +1,11 @@
+node_modules/
+.vsix
+coverage/
+.DS_Store
+npm-debug.log*
+*.log
+.vscode-test/
+package-lock.json
+*.vsix
+.pytest_cache/
+__pycache__/

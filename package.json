@@ -1,0 +1,28 @@
+{
+  "name": "vscode-browser-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VS Code Browser Bridge: a local named-pipe bridge for trusted local applications to access Copilot models.",
+  "main": "src/extension.js",
+  "scripts": {
+    "json": "node --test",
+    "test": "node --test --experimental-test-coverage",
+    "scan:forbidden": "node scripts/forbidden-api-scan.js",
+    "scan:secrets": "node scripts/secret-scan.js",
+    "scan": "npm run scan:forbidden && npm run scan:secrets",
+    "package": "node scripts/package-vsix.js",
+    "package:vsix": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vsix.ps1",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "verify": "npm run scan"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeeharArora/AI_LeverageVSCodeModelsToOtherProjects"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

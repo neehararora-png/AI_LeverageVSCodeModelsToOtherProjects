@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Node tests",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests/scaffold.test.js",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
