@@ -16,6 +16,7 @@ const { createAuditLog } = require('../../audit/auditLog');
 const { pickModel } = require('../../lm/selector');
 const { extractBearerToken } = require('../../security/authenticator');
 const { redactSecret } = require('../../security/redact');
+const { activate } = require('../../extension');
 
 const fakeStorage = {
   values: new Map(),
@@ -116,4 +117,36 @@ test('audit log and model selector work predictably', () => {
   assert.equal(picked.id, 'gpt-4o' || picked.id, true);
   assert.equal(extractBearerToken({ Authorization: 'Bearer abc123' }), 'abc123');
   assert.match(redactSecret('verysecretvalue'), /\*\*\*/);
+});
+
+test('extension activation registers lifecycle commands when VS Code is present', () => {
+  const subscriptions = [];
+  const commands = new Map();
+  const fakeVscode = {
+    commands: {
+      registerCommand(id, handler) {
+        commands.set(id, handler);
+        const disposable = { dispose() { commands.delete(id); } };
+        subscriptions.push(disposable);
+        return disposable;
+      }
+    },
+    window: {
+      createStatusBarItem() {
+        return {
+          text: '',
+          command: '',
+          show() {},
+          hide() {},
+          dispose() {}
+        };
+      }
+    }
+  };
+
+  const result = activate({ subscriptions }, fakeVscode);
+  assert.equal(result.bridge.isActive, true);
+  assert.equal(typeof commands.get('vscode-browser-bridge.start'), 'function');
+  assert.equal(typeof commands.get('vscode-browser-bridge.stop'), 'function');
+  assert.ok(subscriptions.length >= 1);
 });
