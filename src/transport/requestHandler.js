@@ -8,6 +8,7 @@ const { handleGenerate } = require('../handlers/generate');
 const { parseStrictJson, validateGenerateBody } = require('../security/guards');
 const { createRateLimiter } = require('../security/rateLimiter');
 const { authenticateRequest, createReplayNonceCache } = require('../security/authenticator');
+const { matchesAllowed } = require('../lm/selector');
 
 function readBoundedBody(request, maxBodyBytes) {
   return new Promise((resolve, reject) => {
@@ -54,7 +55,17 @@ function createBridgeRequestHandler(options = {}) {
   const rateLimiter = options.rateLimiter || createRateLimiter(options.rateLimit || {});
   const expectedToken = typeof options.expectedToken === 'string' ? options.expectedToken : '';
   const startedAt = Number.isFinite(options.startedAt) ? options.startedAt : Date.now();
-  const availableModels = Array.isArray(options.availableModels) ? options.availableModels : [];
+  const chatClient = options.chatClient;
+  const getAvailableModels = async () => {
+    if (Array.isArray(options.availableModels)) {
+      return options.availableModels;
+    }
+    if (chatClient && typeof chatClient.listModels === 'function') {
+      const models = await chatClient.listModels();
+      return Array.isArray(models) ? models : [];
+    }
+    return [];
+  };
 
   const dependencies = {
     expectedToken,
@@ -68,21 +79,46 @@ function createBridgeRequestHandler(options = {}) {
       return validateGenerateBody(parseStrictJson(rawBody, { maxChars: maxBodyBytes }));
     },
     handlers: {
-      '/v1/health'({ requestId }) {
+      async '/v1/health'({ requestId }) {
+        const availableModels = await getAvailableModels();
+        const modelsAvailable = availableModels.some((model) => matchesAllowed([
+          model.id,
+          model.name,
+          model.family,
+          model.vendor
+        ].filter(Boolean).join(' '), options.allowedModelFamilies || ['copilot']));
         return {
           statusCode: 200,
           payload: buildHealthResponse({
             startedAt,
             requestId,
-            modelsAvailable: availableModels.length > 0
+            modelsAvailable
           })
         };
       },
-      '/v1/generate'({ body, requestId }) {
+      async '/v1/models'({ requestId }) {
+        const availableModels = await getAvailableModels();
+        const models = availableModels.filter((model) => matchesAllowed([
+          model.id,
+          model.name,
+          model.family,
+          model.vendor
+        ].filter(Boolean).join(' '), options.allowedModelFamilies || ['copilot']))
+          .map((model) => ({
+            id: String(model.id || model.name || ''),
+            name: String(model.name || model.id || ''),
+            family: String(model.family || ''),
+            vendor: String(model.vendor || '')
+          }));
+        return { statusCode: 200, payload: { ok: true, models, requestId } };
+      },
+      async '/v1/generate'({ body, requestId }) {
+        const availableModels = await getAvailableModels();
         return handleGenerate({ ...body, requestId }, {
           availableModels,
           allowedFamilies: options.allowedModelFamilies,
-          chatClient: options.chatClient
+          chatClient,
+          confirmModelRequest: options.confirmModelRequest
         });
       }
     }
@@ -99,7 +135,9 @@ function createBridgeRequestHandler(options = {}) {
     }
 
     const method = String(request.method || 'GET').toUpperCase();
-    const allowedMethod = pathname === '/v1/health' ? 'GET' : pathname === '/v1/generate' ? 'POST' : null;
+    const allowedMethod = pathname === '/v1/health' || pathname === '/v1/models'
+      ? 'GET'
+      : pathname === '/v1/generate' ? 'POST' : null;
     if (allowedMethod && method !== allowedMethod) {
       writeJson(response, 405, {
         ok: false,

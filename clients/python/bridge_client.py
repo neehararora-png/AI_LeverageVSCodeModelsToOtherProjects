@@ -1,5 +1,4 @@
 import hashlib
-import json
 import os
 import time
 import uuid
@@ -10,9 +9,10 @@ class BridgeError(RuntimeError):
 
 
 class BridgeClient:
-    def __init__(self, pipe_name=None, client_id=None):
+    def __init__(self, pipe_name=None, client_id=None, token=None):
         self.pipe_name = pipe_name or "vscode-browser-bridge"
         self.client_id = client_id or "python-client"
+        self.token = token or os.getenv("VSCODE_BROWSER_BRIDGE_TOKEN")
 
     def _pipe_path(self):
         host = os.getenv("COMPUTERNAME", "localhost")
@@ -20,8 +20,10 @@ class BridgeClient:
         return r"\\.\pipe\%s-%s" % (self.pipe_name, digest)
 
     def _request(self, method, path, payload=None, headers=None):
+        if not self.token:
+            raise BridgeError("Set VSCODE_BROWSER_BRIDGE_TOKEN or pass a token to BridgeClient.")
         request_headers = {
-            "Authorization": "Bearer placeholder-token",
+            "Authorization": "Bearer %s" % self.token,
             "X-Bridge-Client": self.client_id,
             "X-Bridge-Nonce": uuid.uuid4().hex,
             "X-Bridge-Timestamp": str(int(time.time() * 1000)),

@@ -23,4 +23,6 @@
 
 The bridge intentionally keeps the browser or arbitrary local page outside the credential boundary. The local application bears the token, while the model access remains inside the VS Code trust boundary.
 
+Starting the named pipe requires a versioned modal bridge-consent decision. Each model generation also requires explicit user approval; prompt content is not displayed in the approval dialog. The access token stays in VS Code SecretStorage and is copied only through the explicit copy-token command. Disabling the bridge stops the server, records revoked consent, and deletes the stored token.
+
 This project avoids third-party packages and does not place secrets in the repository. The implementation also rejects dangerous APIs and blocks secret-like material in logs.

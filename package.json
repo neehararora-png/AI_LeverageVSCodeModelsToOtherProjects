@@ -4,6 +4,29 @@
   "private": true,
   "description": "VS Code Browser Bridge: a local named-pipe bridge for trusted local applications to access Copilot models.",
   "main": "src/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscode-browser-bridge.start",
+        "title": "VS Code Bridge: Enable"
+      },
+      {
+        "command": "vscode-browser-bridge.stop",
+        "title": "VS Code Bridge: Stop"
+      },
+      {
+        "command": "vscode-browser-bridge.copyToken",
+        "title": "VS Code Bridge: Copy Access Token"
+      },
+      {
+        "command": "vscode-browser-bridge.disable",
+        "title": "VS Code Bridge: Disable and Revoke Token"
+      }
+    ]
+  },
   "scripts": {
     "json": "node --test",
     "test": "node --test --experimental-test-coverage",

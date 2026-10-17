@@ -92,10 +92,12 @@ async function dispatch(request, dependencies = {}) {
       statusCode: result && result.statusCode ? result.statusCode : 200,
       payload: result && result.payload ? result.payload : result
     };
-  } catch {
+  } catch (error) {
+    const modelUnavailable = error && error.code === 'model_unavailable';
     return {
-      statusCode: 500,
-      payload: buildErrorPayload('internal_error', 'Request could not be completed.', requestId)
+      statusCode: modelUnavailable ? 503 : 500,
+      payload: buildErrorPayload(modelUnavailable ? 'model_unavailable' : 'internal_error',
+        modelUnavailable ? 'No compatible language model is available.' : 'Request could not be completed.', requestId)
     };
   } finally {
     if (request._lease && typeof request._lease.release === 'function') {
