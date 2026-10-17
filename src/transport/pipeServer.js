@@ -9,15 +9,20 @@ function createPipeServer({ pipePath, requestHandler = () => {}, onError = () =>
   }
 
   const server = http.createServer((req, res) => {
-    try {
-      requestHandler(req, res);
-    } catch (error) {
-      onError(error);
+    Promise.resolve().then(() => requestHandler(req, res)).catch((error) => {
+      try {
+        onError(error);
+      } catch {
+        // Error reporting must not prevent the response from completing.
+      }
+      if (res.destroyed) {
+        return;
+      }
       if (!res.headersSent) {
-        res.statusCode = 500;
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       }
       res.end('Internal Server Error');
-    }
+    });
   });
 
   server.headersTimeout = 30000;
