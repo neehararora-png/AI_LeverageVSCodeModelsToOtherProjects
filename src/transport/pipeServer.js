@@ -20,6 +20,10 @@ function createPipeServer({ pipePath, requestHandler = () => {}, onError = () =>
     }
   });
 
+  server.headersTimeout = 30000;
+  server.requestTimeout = 30000;
+  server.keepAliveTimeout = 15000;
+
   server.on('error', (error) => {
     onError(error);
   });
@@ -28,8 +32,10 @@ function createPipeServer({ pipePath, requestHandler = () => {}, onError = () =>
     server,
     listen() {
       return new Promise((resolve, reject) => {
-        server.once('error', (error) => reject(error));
-        server.listen(pipePath, () => {
+        const onError = (error) => reject(error);
+        server.once('error', onError);
+        server.listen({ path: pipePath }, () => {
+          server.removeListener('error', onError);
           resolve(server);
         });
       });
