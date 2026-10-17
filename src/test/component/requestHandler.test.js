@@ -135,3 +135,44 @@ test('request handler requires explicit user approval before model generation', 
   assert.equal(result.body.error.code, 'model_request_denied');
   assert.equal(generationCount, 0);
 });
+
+test('request handler writes privacy-safe audit metadata for responses', async () => {
+  const entries = [];
+  const handler = createBridgeRequestHandler({
+    expectedToken: 'test-token',
+    auditLog: { writeEntry(entry) { entries.push(entry); } },
+    availableModels: [{ id: 'gpt-4o', family: 'gpt-4o', vendor: 'copilot' }],
+    confirmModelRequest: async () => true,
+    chatClient: {
+      async generate() {
+        return { model: 'gpt-4o', response: 'private prompt output' };
+      }
+    }
+  });
+
+  await send(handler, 'POST', '/v1/generate', {
+    ...authHeaders('audited-generate'),
+    'Content-Type': 'application/json'
+  }, JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: 'private prompt input' }] }));
+
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].endpoint, '/v1/generate');
+  assert.equal(entries[0].outcome, 'ok');
+  assert.ok(entries[0].durationMs >= 0);
+  assert.ok(entries[0].responseBytes > 0);
+  assert.equal(Object.keys(entries[0]).some((key) => /prompt|token|header|content/i.test(key)), false);
+});
+
+test('audit write failures do not change the HTTP response', async () => {
+  const auditErrors = [];
+  const handler = createBridgeRequestHandler({
+    expectedToken: 'test-token',
+    auditLog: { writeEntry() { throw new Error('disk unavailable'); } },
+    onAuditError(error) { auditErrors.push(error.message); }
+  });
+
+  const result = await send(handler, 'GET', '/v1/health', authHeaders('audit-failure'));
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.ok, true);
+  assert.deepEqual(auditErrors, ['disk unavailable']);
+});

@@ -9,6 +9,8 @@ const { createBridgeRequestHandler } = require('./transport/requestHandler');
 const { hasConsent, recordConsent, shouldPrompt } = require('./consent/consentGate');
 const { createTokenManager } = require('./security/tokenManager');
 const { createChatClient } = require('./lm/chatClient');
+const path = require('node:path');
+const { createAuditLog } = require('./audit/auditLog');
 
 const CONSENT_STATE_KEY = 'vscode-browser-bridge.consent';
 const EXTENSION_VERSION = require('../package.json').version;
@@ -121,6 +123,11 @@ function activate(context = {}, vscodeApi = null, options = {}) {
 
       const expectedToken = await tokenManager.getToken() || await tokenManager.rotateToken();
       const apiDependencies = options.apiDependencies || {};
+      const auditLog = apiDependencies.auditLog || (
+        settings.audit.enabled && typeof context.globalStorageUri?.fsPath === 'string'
+          ? createAuditLog(path.join(context.globalStorageUri.fsPath, 'audit'))
+          : null
+      );
       const chatClient = apiDependencies.chatClient || createChatClient(vscode, {
         vendor: apiDependencies.vendor || 'copilot'
       });
@@ -130,6 +137,8 @@ function activate(context = {}, vscodeApi = null, options = {}) {
         ...apiDependencies,
         expectedToken,
         chatClient,
+        auditLog,
+        onAuditError: options.onAuditError,
         confirmModelRequest: apiDependencies.confirmModelRequest || (async ({ model, messageCount }) => {
           if (!vscode?.window || typeof vscode.window.showWarningMessage !== 'function') {
             return false;
