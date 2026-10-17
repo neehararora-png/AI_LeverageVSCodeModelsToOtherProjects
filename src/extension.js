@@ -3,6 +3,8 @@
 
 const { createStatusBar } = require('./ui/statusBar');
 const { sanitizeSettings } = require('./config/settings');
+const { createPipeServer } = require('./transport/pipeServer');
+const { thePipePath } = require('./transport/pipePath');
 
 function resolveVSCodeApi(vscodeApi = null) {
   if (vscodeApi) {
@@ -20,7 +22,7 @@ function makeBridgeState(statusBar, settings = sanitizeSettings()) {
   const bridge = {
     settings,
     statusBar,
-    isActive: true,
+    isActive: false,
     startedAt: Date.now(),
     start() {
       bridge.isActive = true;
@@ -37,12 +39,15 @@ function makeBridgeState(statusBar, settings = sanitizeSettings()) {
   return bridge;
 }
 
-function activate(context = {}, vscodeApi = null) {
-  const settings = sanitizeSettings();
+function activate(context = {}, vscodeApi = null, options = {}) {
+  const settings = sanitizeSettings(options.settings);
   const statusBar = createStatusBar();
   const bridge = makeBridgeState(statusBar, settings);
   const vscode = resolveVSCodeApi(vscodeApi);
   let statusItem = null;
+  let serverInstance = null;
+  let startPromise = null;
+  let stopPromise = null;
 
   const updateStatusBar = (nextState) => {
     statusBar.setState(nextState);
@@ -60,16 +65,76 @@ function activate(context = {}, vscodeApi = null) {
     }
   };
 
-  const startBridge = () => {
-    bridge.isActive = true;
-    updateStatusBar('listening');
-    return { ok: true, state: statusBar.getState() };
+  const startBridge = async () => {
+    if (stopPromise) {
+      await stopPromise;
+    }
+    if (serverInstance) {
+      return { ok: true, state: statusBar.getState() };
+    }
+    if (startPromise) {
+      return startPromise;
+    }
+
+    const serverFactory = options.serverFactory || createPipeServer;
+    const pipePath = options.pipePath || thePipePath(settings.pipeName);
+    const requestHandler = options.requestHandler || ((_request, response) => {
+      response.writeHead(503, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ ok: false, error: { code: 'not_ready' } }));
+    });
+    const server = serverFactory({
+      pipePath,
+      requestHandler,
+      onError(error) {
+        updateStatusBar('error');
+        if (typeof options.onError === 'function') {
+          options.onError(error);
+        }
+      }
+    });
+
+    startPromise = Promise.resolve().then(() => server.listen()).then(() => {
+      serverInstance = server;
+      bridge.isActive = true;
+      updateStatusBar('listening');
+      return { ok: true, state: statusBar.getState() };
+    }).catch((error) => {
+      updateStatusBar('error');
+      throw error;
+    }).finally(() => {
+      startPromise = null;
+    });
+
+    return startPromise;
   };
 
-  const stopBridge = () => {
-    bridge.isActive = false;
-    updateStatusBar('off');
-    return { ok: true, state: statusBar.getState() };
+  const stopBridge = async () => {
+    if (stopPromise) {
+      return stopPromise;
+    }
+    if (startPromise) {
+      await startPromise.catch(() => undefined);
+    }
+    if (!serverInstance) {
+      bridge.isActive = false;
+      updateStatusBar('off');
+      return { ok: true, state: statusBar.getState() };
+    }
+
+    const server = serverInstance;
+    serverInstance = null;
+    stopPromise = Promise.resolve().then(() => server.close()).then(() => {
+      bridge.isActive = false;
+      updateStatusBar('off');
+      return { ok: true, state: statusBar.getState() };
+    }).catch((error) => {
+      updateStatusBar('error');
+      throw error;
+    }).finally(() => {
+      stopPromise = null;
+    });
+
+    return stopPromise;
   };
 
   bridge.start = startBridge;
@@ -85,14 +150,14 @@ function activate(context = {}, vscodeApi = null) {
 
   if (vscode && vscode.commands && typeof vscode.commands.registerCommand === 'function') {
     const register = (id, handler) => vscode.commands.registerCommand(id, handler);
-    const dispose = { dispose() { stopBridge(); if (statusItem && typeof statusItem.dispose === 'function') { statusItem.dispose(); } } };
+    const dispose = { dispose() { stopBridge().catch(() => undefined); if (statusItem && typeof statusItem.dispose === 'function') { statusItem.dispose(); } } };
     const startDisposable = register('vscode-browser-bridge.start', startBridge);
     const stopDisposable = register('vscode-browser-bridge.stop', stopBridge);
     if (context && Array.isArray(context.subscriptions)) {
       context.subscriptions.push(startDisposable, stopDisposable, dispose);
     }
   } else if (context && typeof context.subscriptions !== 'undefined') {
-    context.subscriptions.push({ dispose() { bridge.isActive = false; updateStatusBar('off'); } });
+    context.subscriptions.push({ dispose() { stopBridge().catch(() => undefined); } });
   }
 
   bridge.statusBar = statusBar;

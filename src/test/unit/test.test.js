@@ -249,8 +249,43 @@ test('extension activation registers lifecycle commands when VS Code is present'
   };
 
   const result = activate({ subscriptions }, fakeVscode);
-  assert.equal(result.bridge.isActive, true);
+  assert.equal(result.bridge.isActive, false);
   assert.equal(typeof commands.get('vscode-browser-bridge.start'), 'function');
   assert.equal(typeof commands.get('vscode-browser-bridge.stop'), 'function');
   assert.ok(subscriptions.length >= 1);
+});
+
+test('extension lifecycle starts and closes its named-pipe server idempotently', async () => {
+  const commands = new Map();
+  const calls = [];
+  const fakeVscode = {
+    commands: {
+      registerCommand(id, handler) {
+        commands.set(id, handler);
+        return { dispose() { commands.delete(id); } };
+      }
+    }
+  };
+
+  const result = activate({ subscriptions: [] }, fakeVscode, {
+    pipePath: '\\\\.\\pipe\\bridge-lifecycle-test',
+    serverFactory(options) {
+      calls.push({ type: 'create', pipePath: options.pipePath });
+      return {
+        async listen() { calls.push({ type: 'listen' }); },
+        async close() { calls.push({ type: 'close' }); }
+      };
+    }
+  });
+
+  assert.equal(result.statusBar.getState(), 'off');
+  await commands.get('vscode-browser-bridge.start')();
+  await commands.get('vscode-browser-bridge.start')();
+  assert.equal(result.statusBar.getState(), 'listening');
+  assert.equal(calls.filter((call) => call.type === 'listen').length, 1);
+  assert.equal(calls[0].pipePath, '\\\\.\\pipe\\bridge-lifecycle-test');
+
+  await commands.get('vscode-browser-bridge.stop')();
+  assert.equal(result.statusBar.getState(), 'off');
+  assert.equal(calls.filter((call) => call.type === 'close').length, 1);
 });
