@@ -16,6 +16,7 @@ This repository intentionally avoids third-party dependencies, lockfiles, and pa
 ## Development
 - `npm test`
 - `npm run verify`
+- `python -m unittest discover -s clients/python -p "test_*.py"`
 - `node scripts/forbidden-api-scan.js`
 - `node scripts/secret-scan.js`
 
