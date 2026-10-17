@@ -30,9 +30,9 @@ Accepts a JSON object containing:
 The bridge may substitute a compatible model if the requested one is unavailable.
 Request bodies are limited to 256 KiB and must use `Content-Type: application/json`.
 The concurrency slot remains held until model generation completes.
-In the VS Code extension, each generation request requires an explicit modal approval before prompt content is sent to a language model. Denied requests return `403 model_request_denied`.
+In the VS Code extension, each generation request requires an explicit modal approval before prompt content is sent to a language model. Denied requests return `403 model_request_denied`. Model calls are bounded by the configured request timeout and cancelled if the local client disconnects.
 
 If no language-model client is available, this endpoint returns `503 model_unavailable`; it never fabricates a successful model response.
 
 ## Error model
-Errors return a generic JSON payload with a non-revealing message and a numeric HTTP status. Supported statuses include `400` for invalid input, `401` for failed authentication, `403` for a user-denied model request, `404` for unknown routes, `405` for an unsupported method, `413` for an oversized body, `429` for rate or concurrency limits, and `503` when no model is available.
+Errors return a generic JSON payload with a non-revealing message and a numeric HTTP status. Supported statuses include `400` for invalid input, `401` for failed authentication, `403` for a user-denied model request, `404` for unknown routes, `405` for an unsupported method, `413` for an oversized body, `429` for rate or concurrency limits, `499` when the client disconnects, `503` when no model is available, and `504` when model generation times out.

@@ -157,6 +157,11 @@ function activate(context = {}, vscodeApi = null, options = {}) {
           );
           return answer === 'Send Request';
         }),
+        requestTimeoutMs: settings.requestTimeoutMs,
+        cancellationTokenSourceFactory: apiDependencies.cancellationTokenSourceFactory
+          || (typeof vscode?.CancellationTokenSource === 'function'
+            ? () => new vscode.CancellationTokenSource()
+            : undefined),
         allowedModelFamilies: settings.allowedModelFamilies,
         rateLimit: settings.rateLimit
       });

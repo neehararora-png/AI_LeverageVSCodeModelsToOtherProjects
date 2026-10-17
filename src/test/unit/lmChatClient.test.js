@@ -14,7 +14,7 @@ test('chat client selects allowed models, converts messages, and collects respon
     family: 'gpt-4o',
     vendor: 'copilot',
     async sendRequest(messages, options) {
-      requests.push({ messages, options });
+      requests.push({ messages, options, token: arguments[2] });
       return {
         text: (async function* () {
           yield 'hello';
@@ -53,6 +53,31 @@ test('chat client selects allowed models, converts messages, and collects respon
     { role: 'assistant', content: 'context' }
   ]);
   assert.match(requests[0].options.justification, /trusted local application/i);
+});
+
+test('chat client forwards the per-request cancellation token to VS Code', async () => {
+  const token = { isCancellationRequested: false };
+  let receivedToken;
+  const client = createChatClient({
+    lm: {
+      async selectChatModels() {
+        return [{
+          id: 'gpt-4o',
+          async sendRequest(_messages, _options, cancellationToken) {
+            receivedToken = cancellationToken;
+            return { text: (async function* () { yield 'ok'; }()) };
+          }
+        }];
+      }
+    },
+    LanguageModelChatMessage: {
+      User(content) { return { role: 'user', content }; },
+      Assistant(content) { return { role: 'assistant', content }; }
+    }
+  });
+
+  await client.generate({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }], cancellationToken: token });
+  assert.equal(receivedToken, token);
 });
 
 test('chat client fails closed when VS Code LM is unavailable', async () => {

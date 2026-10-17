@@ -58,19 +58,83 @@ async function handleGenerate(request = {}, dependencies = {}) {
     }
   }
 
-  const output = await generator({
-    model: chosen.id || chosen.name || 'copilot',
-    messages: request.messages || [],
-    temperature: request.temperature,
-    maxInputTokens: request.maxInputTokens
+  const cancellationSource = typeof dependencies.cancellationTokenSourceFactory === 'function'
+    ? dependencies.cancellationTokenSourceFactory()
+    : null;
+  let timeout = null;
+  let abortListener = null;
+
+  const cancellationResult = new Promise((resolve) => {
+    if (request.signal && typeof request.signal.addEventListener === 'function') {
+      abortListener = () => {
+        if (cancellationSource && typeof cancellationSource.cancel === 'function') {
+          cancellationSource.cancel();
+        }
+        resolve({
+          statusCode: 499,
+          payload: {
+            ok: false,
+            error: { code: 'client_disconnected', message: 'Request was cancelled.' },
+            requestId: request.requestId || 'generate-request'
+          }
+        });
+      };
+      if (request.signal.aborted) {
+        abortListener();
+      } else {
+        request.signal.addEventListener('abort', abortListener, { once: true });
+      }
+    }
+    if (Number.isInteger(dependencies.requestTimeoutMs) && dependencies.requestTimeoutMs > 0) {
+      timeout = setTimeout(() => {
+        if (cancellationSource && typeof cancellationSource.cancel === 'function') {
+          cancellationSource.cancel();
+        }
+        resolve({
+          statusCode: 504,
+          payload: {
+            ok: false,
+            error: { code: 'request_timeout', message: 'Model request timed out.' },
+            requestId: request.requestId || 'generate-request'
+          }
+        });
+      }, dependencies.requestTimeoutMs);
+    }
   });
 
-  return {
-    ok: true,
-    model: output.model || chosen.id || chosen.name || 'copilot',
-    response: output.response || output.text || '',
-    requestId: request.requestId || 'generate-request'
-  };
+  try {
+    const output = await Promise.race([
+      Promise.resolve().then(() => generator({
+        model: chosen.id || chosen.name || 'copilot',
+        messages: request.messages || [],
+        temperature: request.temperature,
+        maxInputTokens: request.maxInputTokens,
+        cancellationToken: cancellationSource?.token
+      })),
+      cancellationResult
+    ]);
+
+    if (output && output.statusCode) {
+      return output;
+    }
+
+    return {
+      ok: true,
+      model: output.model || chosen.id || chosen.name || 'copilot',
+      response: output.response || output.text || '',
+      requestId: request.requestId || 'generate-request'
+    };
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (abortListener && request.signal) {
+      request.signal.removeEventListener('abort', abortListener);
+    }
+    if (cancellationSource && typeof cancellationSource.dispose === 'function') {
+      cancellationSource.dispose();
+    }
+  }
 }
 
 module.exports = {
