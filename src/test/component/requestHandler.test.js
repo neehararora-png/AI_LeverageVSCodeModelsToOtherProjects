@@ -28,6 +28,7 @@ async function send(handler, method, url, headers = {}, body = '') {
   };
 
   await handler(request, response);
+  response.request = request;
   return response;
 }
 
@@ -87,6 +88,7 @@ test('request handler serves authenticated health and awaits generate routes', a
   const wrongMethod = await send(handler, 'POST', '/v1/health', authHeaders('method-nonce'));
   assert.equal(wrongMethod.statusCode, 405);
   assert.equal(wrongMethod.headers.Allow, 'GET');
+  assert.equal(wrongMethod.request.listenerCount('aborted'), 0);
 });
 
 test('request handler rejects oversized generate bodies with 413', async () => {
