@@ -126,7 +126,8 @@ function authenticateRequest(headers = {}, expectedToken, options = {}) {
     return { ok: false, code: 'invalid_request', reason: 'ambient_authority' };
   }
 
-  const replayCheck = validateRequestHeaders(headers, options);
+  const replayCache = options.replayCache || null;
+  const replayCheck = validateRequestHeaders(headers, { ...options, replayCache: null });
   if (!replayCheck.ok) {
     return replayCheck;
   }
@@ -138,6 +139,14 @@ function authenticateRequest(headers = {}, expectedToken, options = {}) {
   if (!verifyBearerToken(token, expectedToken || '')) {
     return { ok: false, code: 'unauthorized', reason: 'token_mismatch' };
   }
+
+  if (replayCache && replayCache.has(replayCheck.nonce, options.nowMs)) {
+    return { ok: false, code: 'invalid_request', reason: 'replay_nonce_reused' };
+  }
+  if (replayCache && typeof replayCache.add === 'function') {
+    replayCache.add(replayCheck.nonce, replayCheck.timestamp);
+  }
+
   return { ok: true, token };
 }
 

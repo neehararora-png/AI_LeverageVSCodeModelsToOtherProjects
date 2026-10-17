@@ -73,8 +73,8 @@ test('guards reject invalid JSON and unknown fields', () => {
   assert.throws(() => validateGenerateBody({ model: 'copilot', messages: [{ role: 'user', content: 'hello' }], extra: true }));
 });
 
-test('dispatch enforces route and auth order', () => {
-  const result = dispatch({
+test('dispatch enforces route and auth order', async () => {
+  const result = await dispatch({
     method: 'GET',
     pathname: '/health',
     headers: { Authorization: 'Bearer secret' },
@@ -118,6 +118,16 @@ test('audit log and model selector work predictably', () => {
   assert.equal(picked.id, 'gpt-4o' || picked.id, true);
   assert.equal(extractBearerToken({ Authorization: 'Bearer abc123' }), 'abc123');
   assert.match(redactSecret('verysecretvalue'), /\*\*\*/);
+});
+
+test('model selection honors explicit families and never falls back outside the allowlist', () => {
+  const available = [
+    { id: 'gpt-4o', family: 'copilot' },
+    { id: 'external-chat', family: 'third-party' }
+  ];
+  assert.equal(pickModel('gpt-4o', available, ['copilot']).id, 'gpt-4o');
+  assert.equal(pickModel('external-chat', available, ['copilot']).id, 'gpt-4o');
+  assert.equal(pickModel('external-chat', [available[1]], ['copilot']), null);
 });
 
 test('validateRequestHeaders rejects missing replay state and keeps a fresh nonce valid', () => {
@@ -176,6 +186,25 @@ test('authenticateRequest enforces bearer token and replay cache semantics', () 
 
   assert.equal(second.ok, false);
   assert.equal(second.code, 'invalid_request');
+});
+
+test('invalid bearer tokens do not reserve replay nonces', () => {
+  const now = Date.now();
+  const replayCache = createReplayNonceCache({ maxAgeMs: 120000 });
+  const headers = {
+    Authorization: 'Bearer wrong-token',
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Nonce': 'nonce-after-invalid-token',
+    'X-Bridge-Timestamp': String(now)
+  };
+
+  const rejected = authenticateRequest(headers, 'expected-token', { nowMs: now, replayCache });
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.code, 'unauthorized');
+
+  headers.Authorization = 'Bearer expected-token';
+  const accepted = authenticateRequest(headers, 'expected-token', { nowMs: now, replayCache });
+  assert.equal(accepted.ok, true);
 });
 
 test('pipe server sets slow-request timeout values and binds via named-pipe path', async () => {
@@ -270,7 +299,7 @@ test('extension lifecycle starts and closes its named-pipe server idempotently',
   const result = activate({ subscriptions: [] }, fakeVscode, {
     pipePath: '\\\\.\\pipe\\bridge-lifecycle-test',
     serverFactory(options) {
-      calls.push({ type: 'create', pipePath: options.pipePath });
+      calls.push({ type: 'create', pipePath: options.pipePath, requestHandler: options.requestHandler });
       return {
         async listen() { calls.push({ type: 'listen' }); },
         async close() { calls.push({ type: 'close' }); }
@@ -284,6 +313,7 @@ test('extension lifecycle starts and closes its named-pipe server idempotently',
   assert.equal(result.statusBar.getState(), 'listening');
   assert.equal(calls.filter((call) => call.type === 'listen').length, 1);
   assert.equal(calls[0].pipePath, '\\\\.\\pipe\\bridge-lifecycle-test');
+  assert.equal(typeof calls[0].requestHandler, 'function');
 
   await commands.get('vscode-browser-bridge.stop')();
   assert.equal(result.statusBar.getState(), 'off');

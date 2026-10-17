@@ -5,6 +5,7 @@ const { createStatusBar } = require('./ui/statusBar');
 const { sanitizeSettings } = require('./config/settings');
 const { createPipeServer } = require('./transport/pipeServer');
 const { thePipePath } = require('./transport/pipePath');
+const { createBridgeRequestHandler } = require('./transport/requestHandler');
 
 function resolveVSCodeApi(vscodeApi = null) {
   if (vscodeApi) {
@@ -78,9 +79,10 @@ function activate(context = {}, vscodeApi = null, options = {}) {
 
     const serverFactory = options.serverFactory || createPipeServer;
     const pipePath = options.pipePath || thePipePath(settings.pipeName);
-    const requestHandler = options.requestHandler || ((_request, response) => {
-      response.writeHead(503, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ ok: false, error: { code: 'not_ready' } }));
+    const requestHandler = options.requestHandler || createBridgeRequestHandler({
+      ...(options.apiDependencies || {}),
+      allowedModelFamilies: settings.allowedModelFamilies,
+      rateLimit: settings.rateLimit
     });
     const server = serverFactory({
       pipePath,

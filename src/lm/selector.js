@@ -23,27 +23,33 @@ function pickModel(requestedModel = '', availableModels = [], allowedFamilies = 
     };
   }
 
+  const isAllowed = (model) => matchesAllowed([
+    model.id,
+    model.name,
+    model.family
+  ].filter(Boolean).join(' '), allowed);
   const exact = models.find((model) => {
     const id = String(model.id || model.name || '').toLowerCase();
-    return id === requested.toLowerCase();
+    return id === requested.toLowerCase() && isAllowed(model);
   });
-  if (exact && matchesAllowed(String(exact.id || exact.name || ''), allowed)) {
+  if (exact) {
     return exact;
   }
 
-  const byFamily = models.find((model) => matchesAllowed(String(model.id || model.name || ''), allowed));
+  const byFamily = models.find(isAllowed);
   if (byFamily) {
     return byFamily;
   }
 
   if (requested) {
-    const partial = models.find((model) => String(model.id || model.name || '').toLowerCase().includes(requested.toLowerCase()));
+    const partial = models.find((model) => isAllowed(model)
+      && String(model.id || model.name || '').toLowerCase().includes(requested.toLowerCase()));
     if (partial) {
       return partial;
     }
   }
 
-  return models[0];
+  return null;
 }
 
 module.exports = {
