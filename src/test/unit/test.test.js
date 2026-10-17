@@ -222,6 +222,33 @@ test('invalid bearer tokens do not reserve replay nonces', () => {
   assert.equal(accepted.ok, true);
 });
 
+test('replay nonce cache is bounded and expires entries by server receipt time', () => {
+  const cache = createReplayNonceCache({ maxAgeMs: 100, maxEntries: 1 });
+
+  assert.equal(cache.add('first', 1000), true);
+  assert.equal(cache.add('second', 1050), false);
+  assert.equal(cache.has('first', 1050), true);
+  assert.equal(cache.add('second', 1101), true);
+  assert.equal(cache.has('first', 1101), false);
+});
+
+test('authentication fails closed when the replay nonce cache is full', () => {
+  const now = Date.now();
+  const replayCache = createReplayNonceCache({ maxAgeMs: 120000, maxEntries: 1 });
+  replayCache.add('already-seen', now);
+
+  const result = authenticateRequest({
+    Authorization: 'Bearer token-123',
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Nonce': 'new-nonce',
+    'X-Bridge-Timestamp': String(now)
+  }, 'token-123', { nowMs: now, replayCache });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'invalid_request');
+  assert.equal(result.reason, 'replay_cache_full');
+});
+
 test('pipe server sets slow-request timeout values and binds via named-pipe path', async () => {
   const pipe = thePipePath(`bridge-timeout-${Date.now()}`);
   const server = createPipeServer({

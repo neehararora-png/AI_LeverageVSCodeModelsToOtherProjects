@@ -4,16 +4,23 @@
 const crypto = require('node:crypto');
 
 const DEFAULT_REPLAY_WINDOW_MS = 120000;
+const DEFAULT_REPLAY_CACHE_MAX_ENTRIES = 65536;
 
 function createReplayNonceCache(options = {}) {
-  const maxAgeMs = Number.isInteger(options.maxAgeMs) ? options.maxAgeMs : DEFAULT_REPLAY_WINDOW_MS;
+  const maxAgeMs = Number.isInteger(options.maxAgeMs) && options.maxAgeMs > 0
+    ? options.maxAgeMs
+    : DEFAULT_REPLAY_WINDOW_MS;
+  const maxEntries = Number.isInteger(options.maxEntries) && options.maxEntries > 0
+    ? options.maxEntries
+    : DEFAULT_REPLAY_CACHE_MAX_ENTRIES;
   const seen = new Map();
 
   function prune(nowMs = Date.now()) {
     for (const [nonce, timestamp] of seen.entries()) {
-      if (nowMs - Number(timestamp) > maxAgeMs) {
-        seen.delete(nonce);
+      if (nowMs - timestamp <= maxAgeMs) {
+        break;
       }
+      seen.delete(nonce);
     }
   }
 
@@ -22,8 +29,12 @@ function createReplayNonceCache(options = {}) {
       if (typeof nonce !== 'string' || nonce.length === 0) {
         return false;
       }
-      prune(Number(timestamp));
-      seen.set(nonce, Number(timestamp));
+      const receivedAt = Number.isFinite(timestamp) ? Number(timestamp) : Date.now();
+      prune(receivedAt);
+      if (seen.has(nonce) || seen.size >= maxEntries) {
+        return false;
+      }
+      seen.set(nonce, receivedAt);
       return true;
     },
     has(nonce, nowMs = Date.now()) {
@@ -32,6 +43,12 @@ function createReplayNonceCache(options = {}) {
       }
       prune(nowMs);
       return seen.has(nonce);
+    },
+    get size() {
+      return seen.size;
+    },
+    get maxEntries() {
+      return maxEntries;
     },
     clear() {
       seen.clear();
@@ -87,7 +104,9 @@ function validateRequestHeaders(headers = {}, options = {}) {
   }
 
   if (replayCache && typeof replayCache.add === 'function') {
-    replayCache.add(nonce, parsedTs || nowMs);
+    if (!replayCache.add(nonce, nowMs)) {
+      return { ok: false, code: 'invalid_request', reason: 'replay_cache_full' };
+    }
   }
 
   return { ok: true, client, nonce, timestamp: parsedTs };
@@ -144,7 +163,9 @@ function authenticateRequest(headers = {}, expectedToken, options = {}) {
     return { ok: false, code: 'invalid_request', reason: 'replay_nonce_reused' };
   }
   if (replayCache && typeof replayCache.add === 'function') {
-    replayCache.add(replayCheck.nonce, replayCheck.timestamp);
+    if (!replayCache.add(replayCheck.nonce, Number.isFinite(options.nowMs) ? Number(options.nowMs) : Date.now())) {
+      return { ok: false, code: 'invalid_request', reason: 'replay_cache_full' };
+    }
   }
 
   return { ok: true, token };

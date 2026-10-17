@@ -8,6 +8,7 @@
 | Safe pipe-name derivation | `src/transport/pipePath.js` | `src/test/unit/test.test.js` |
 | 256-bit token generation | `src/security/tokenManager.js` | `src/test/unit/test.test.js` |
 | Constant-time verification | `src/security/tokenManager.js` | `src/test/unit/test.test.js` |
+| Bounded replay protection | `src/security/authenticator.js` | `src/test/unit/test.test.js` |
 | Strict JSON parsing | `src/security/guards.js` | `src/test/unit/test.test.js` |
 | Body-size enforcement | `src/security/guards.js` | `src/test/unit/test.test.js` |
 | Unknown-field rejection | `src/security/guards.js` | `src/test/unit/test.test.js` |
@@ -28,5 +29,7 @@ Starting the named pipe requires a versioned modal bridge-consent decision. Each
 When audit is enabled, request outcomes are written under VS Code global storage with only the random request ID, endpoint path, outcome, duration, and response byte count. Request headers and prompt/response content are not audit fields, and audit-write failures do not change the HTTP response.
 
 Idle shutdown is reset only after successful request authentication, so unauthenticated traffic cannot keep the named-pipe listener alive. When the idle timer closes the listener, the extension status returns to off; explicit stop and disposal cancel the timer.
+
+Replay nonces are retained for the server-side replay window in a bounded cache of at most 65,536 entries. Entries expire from server receipt time, and authentication fails closed while the cache is full instead of evicting a still-valid nonce.
 
 This project avoids third-party packages and does not place secrets in the repository. The implementation also rejects dangerous APIs and blocks secret-like material in logs.
