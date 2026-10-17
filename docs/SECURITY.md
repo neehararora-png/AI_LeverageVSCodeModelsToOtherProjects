@@ -14,7 +14,7 @@
 | Token bucket + concurrency | `src/security/rateLimiter.js` | `src/test/unit/test.test.js` |
 | Consent gate | `src/consent/consentGate.js` | `src/test/unit/test.test.js` |
 | Status visibility | `src/ui/statusBar.js` | `src/test/unit/test.test.js` |
-| Audit logging | `src/audit/auditLog.js` | `src/test/unit/test.test.js` |
+| Metadata-only request auditing | `src/transport/requestHandler.js`, `src/audit/auditLog.js` | `src/test/component/requestHandler.test.js` |
 | Secret redaction | `src/security/redact.js` | `src/test/unit/test.test.js` |
 | Route/auth ordering | `src/dispatch/dispatch.js` | `src/test/unit/test.test.js` |
 | Pipe server lifecycle | `src/transport/pipeServer.js` | `src/test/component/pipeServer.test.js` |
@@ -24,5 +24,7 @@
 The bridge intentionally keeps the browser or arbitrary local page outside the credential boundary. The local application bears the token, while the model access remains inside the VS Code trust boundary.
 
 Starting the named pipe requires a versioned modal bridge-consent decision. Each model generation also requires explicit user approval; prompt content is not displayed in the approval dialog. The access token stays in VS Code SecretStorage and is copied only through the explicit copy-token command. Disabling the bridge stops the server, records revoked consent, and deletes the stored token.
+
+When audit is enabled, request outcomes are written under VS Code global storage with only the random request ID, endpoint path, outcome, duration, and response byte count. Request headers and prompt/response content are not audit fields, and audit-write failures do not change the HTTP response.
 
 This project avoids third-party packages and does not place secrets in the repository. The implementation also rejects dangerous APIs and blocks secret-like material in logs.

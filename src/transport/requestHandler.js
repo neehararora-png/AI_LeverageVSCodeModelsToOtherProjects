@@ -53,6 +53,9 @@ function createBridgeRequestHandler(options = {}) {
   const maxBodyBytes = Number.isInteger(options.maxBodyBytes) ? Math.max(1, options.maxBodyBytes) : 256 * 1024;
   const replayCache = options.replayCache || createReplayNonceCache();
   const rateLimiter = options.rateLimiter || createRateLimiter(options.rateLimit || {});
+  const auditLog = options.auditLog && typeof options.auditLog.writeEntry === 'function'
+    ? options.auditLog
+    : null;
   const expectedToken = typeof options.expectedToken === 'string' ? options.expectedToken : '';
   const startedAt = Number.isFinite(options.startedAt) ? options.startedAt : Date.now();
   const chatClient = options.chatClient;
@@ -126,11 +129,31 @@ function createBridgeRequestHandler(options = {}) {
 
   return async function handleHttpRequest(request, response) {
     const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
     let pathname = '/';
+    const respond = (statusCode, payload, headers = {}) => {
+      const responseBytes = writeJson(response, statusCode, payload, headers);
+      if (auditLog && responseBytes !== null) {
+        try {
+          auditLog.writeEntry({
+            requestId,
+            endpoint: pathname,
+            outcome: statusCode < 400 ? 'ok' : 'error',
+            durationMs: Math.max(0, Date.now() - startedAt),
+            responseBytes
+          });
+        } catch (error) {
+          if (typeof options.onAuditError === 'function') {
+            options.onAuditError(error);
+          }
+        }
+      }
+    };
+
     try {
       pathname = new URL(request.url || '/', 'http://localhost').pathname;
     } catch {
-      writeJson(response, 400, { ok: false, error: { code: 'invalid_request', message: 'Invalid request.', requestId } });
+      respond(400, { ok: false, error: { code: 'invalid_request', message: 'Invalid request.', requestId } });
       return;
     }
 
@@ -139,7 +162,7 @@ function createBridgeRequestHandler(options = {}) {
       ? 'GET'
       : pathname === '/v1/generate' ? 'POST' : null;
     if (allowedMethod && method !== allowedMethod) {
-      writeJson(response, 405, {
+      respond(405, {
         ok: false,
         error: { code: 'method_not_allowed', message: 'Method not allowed.', requestId }
       }, { Allow: allowedMethod });
@@ -163,9 +186,9 @@ function createBridgeRequestHandler(options = {}) {
         }
       }, dependencies);
 
-      writeJson(response, result.statusCode, result.payload, result.headers);
+      respond(result.statusCode, result.payload, result.headers);
     } catch {
-      writeJson(response, 500, {
+      respond(500, {
         ok: false,
         error: { code: 'internal_error', message: 'Request could not be completed.', requestId }
       });
@@ -175,14 +198,16 @@ function createBridgeRequestHandler(options = {}) {
 
 function writeJson(response, statusCode, payload, headers = {}) {
   if (response.headersSent || response.destroyed) {
-    return;
+    return null;
   }
+  const body = JSON.stringify(payload);
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     ...headers
   });
-  response.end(JSON.stringify(payload));
+  response.end(body);
+  return Buffer.byteLength(body, 'utf8');
 }
 
 module.exports = {
