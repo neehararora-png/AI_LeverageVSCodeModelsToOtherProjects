@@ -7,13 +7,13 @@
   "scripts": {
     "json": "node --test",
     "test": "node --test --experimental-test-coverage",
-    "scan:forbidden": "node scripts/forbidden-api-scan.js",
+    "scan:forbidden": "node scripts/forbidden-api-scan.js && node scripts/secret-scan.js",
     "scan:secrets": "node scripts/secret-scan.js",
-    "scan": "npm run scan:forbidden && npm run scan:secrets",
+    "scan": "node scripts/forbidden-api-scan.js && node scripts/secret-scan.js",
     "package": "node scripts/package-vsix.js",
     "package:vsix": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-vsix.ps1",
     "hooks:install": "git config core.hooksPath .githooks",
-    "verify": "npm run scan"
+    "verify": "node scripts/forbidden-api-scan.js && node scripts/secret-scan.js"
   },
   "engines": {
     "node": ">=20.0.0"
