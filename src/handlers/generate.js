@@ -38,26 +38,6 @@ async function handleGenerate(request = {}, dependencies = {}) {
     };
   }
 
-  if (typeof dependencies.confirmModelRequest === 'function') {
-    const approved = await dependencies.confirmModelRequest({
-      model: chosen.id || chosen.name || request.model || '',
-      messageCount: Array.isArray(request.messages) ? request.messages.length : 0
-    });
-    if (!approved) {
-      return {
-        statusCode: 403,
-        payload: {
-          ok: false,
-          error: {
-            code: 'model_request_denied',
-            message: 'The model request was not approved.'
-          },
-          requestId: request.requestId || 'generate-request'
-        }
-      };
-    }
-  }
-
   const cancellationSource = typeof dependencies.cancellationTokenSourceFactory === 'function'
     ? dependencies.cancellationTokenSourceFactory()
     : null;
@@ -103,6 +83,32 @@ async function handleGenerate(request = {}, dependencies = {}) {
   });
 
   try {
+    if (typeof dependencies.confirmModelRequest === 'function') {
+      const approved = await Promise.race([
+        Promise.resolve().then(() => dependencies.confirmModelRequest({
+          model: chosen.id || chosen.name || request.model || '',
+          messageCount: Array.isArray(request.messages) ? request.messages.length : 0
+        })),
+        cancellationResult
+      ]);
+      if (approved && approved.statusCode) {
+        return approved;
+      }
+      if (!approved) {
+        return {
+          statusCode: 403,
+          payload: {
+            ok: false,
+            error: {
+              code: 'model_request_denied',
+              message: 'The model request was not approved.'
+            },
+            requestId: request.requestId || 'generate-request'
+          }
+        };
+      }
+    }
+
     const output = await Promise.race([
       Promise.resolve().then(() => generator({
         model: chosen.id || chosen.name || 'copilot',
