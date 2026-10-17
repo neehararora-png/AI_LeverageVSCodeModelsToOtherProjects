@@ -14,9 +14,10 @@ const { createStatusBar } = require('../../ui/statusBar');
 const { hasConsent, recordConsent } = require('../../consent/consentGate');
 const { createAuditLog } = require('../../audit/auditLog');
 const { pickModel } = require('../../lm/selector');
-const { extractBearerToken } = require('../../security/authenticator');
+const { extractBearerToken, authenticateRequest, validateRequestHeaders, createReplayNonceCache } = require('../../security/authenticator');
 const { redactSecret } = require('../../security/redact');
 const { activate } = require('../../extension');
+const { createPipeServer } = require('../../transport/pipeServer');
 
 const fakeStorage = {
   values: new Map(),
@@ -117,6 +118,109 @@ test('audit log and model selector work predictably', () => {
   assert.equal(picked.id, 'gpt-4o' || picked.id, true);
   assert.equal(extractBearerToken({ Authorization: 'Bearer abc123' }), 'abc123');
   assert.match(redactSecret('verysecretvalue'), /\*\*\*/);
+});
+
+test('validateRequestHeaders rejects missing replay state and keeps a fresh nonce valid', () => {
+  const now = Date.now();
+  const valid = validateRequestHeaders({
+    Authorization: 'Bearer test-token',
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Nonce': 'nonce-123',
+    'X-Bridge-Timestamp': String(now)
+  }, { nowMs: now });
+
+  assert.equal(valid.ok, true);
+
+  const missingNonce = validateRequestHeaders({
+    Authorization: 'Bearer test-token',
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Timestamp': String(now)
+  }, { nowMs: now });
+
+  assert.equal(missingNonce.ok, false);
+  assert.equal(missingNonce.code, 'invalid_request');
+
+  const replayCache = createReplayNonceCache({ maxAgeMs: 120000 });
+  replayCache.add('nonce-123', now);
+  const reused = validateRequestHeaders({
+    Authorization: 'Bearer test-token',
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Nonce': 'nonce-123',
+    'X-Bridge-Timestamp': String(now)
+  }, { nowMs: now, replayCache });
+
+  assert.equal(reused.ok, false);
+  assert.equal(reused.code, 'invalid_request');
+});
+
+test('authenticateRequest enforces bearer token and replay cache semantics', () => {
+  const now = Date.now();
+  const token = 'token-123';
+  const replayCache = createReplayNonceCache({ maxAgeMs: 120000 });
+
+  const first = authenticateRequest({
+    Authorization: `Bearer ${token}`,
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Nonce': 'nonce-456',
+    'X-Bridge-Timestamp': String(now)
+  }, token, { nowMs: now, replayCache });
+
+  assert.equal(first.ok, true);
+
+  const second = authenticateRequest({
+    Authorization: `Bearer ${token}`,
+    'X-Bridge-Client': 'client-123',
+    'X-Bridge-Nonce': 'nonce-456',
+    'X-Bridge-Timestamp': String(now)
+  }, token, { nowMs: now, replayCache });
+
+  assert.equal(second.ok, false);
+  assert.equal(second.code, 'invalid_request');
+});
+
+test('pipe server sets slow-request timeout values and binds via named-pipe path', async () => {
+  const pipe = thePipePath(`bridge-timeout-${Date.now()}`);
+  const server = createPipeServer({
+    pipePath: pipe,
+    requestHandler(req, res) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    },
+    onError(error) {
+      if (error && error.code !== 'EACCES') {
+        assert.ifError(error);
+      }
+    }
+  });
+
+  assert.equal(server.server.headersTimeout, 30000);
+  assert.equal(server.server.requestTimeout, 30000);
+  assert.equal(server.server.keepAliveTimeout, 15000);
+
+  try {
+    await server.listen();
+  } catch (error) {
+    if (error && error.code === 'EACCES') {
+      return;
+    }
+    throw error;
+  }
+
+  await new Promise((resolve, reject) => {
+    const req = require('node:http').request({ socketPath: pipe, path: '/', method: 'GET' }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        assert.equal(res.statusCode, 200);
+        assert.match(body, /"ok"\s*:\s*true/);
+        resolve();
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+
+  await server.close();
 });
 
 test('extension activation registers lifecycle commands when VS Code is present', () => {
