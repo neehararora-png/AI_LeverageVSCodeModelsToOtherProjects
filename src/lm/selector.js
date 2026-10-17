@@ -26,7 +26,8 @@ function pickModel(requestedModel = '', availableModels = [], allowedFamilies = 
   const isAllowed = (model) => matchesAllowed([
     model.id,
     model.name,
-    model.family
+    model.family,
+    model.vendor
   ].filter(Boolean).join(' '), allowed);
   const exact = models.find((model) => {
     const id = String(model.id || model.name || '').toLowerCase();

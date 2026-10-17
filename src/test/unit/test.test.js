@@ -55,6 +55,20 @@ test('token manager generates and verifies tokens', async () => {
   assert.equal(await manager.verifyStoredToken('bad-token'), false);
 });
 
+test('token manager supports VS Code SecretStorage store semantics', async () => {
+  const values = new Map();
+  const secretStorage = {
+    async get(key) { return values.get(key) || undefined; },
+    async store(key, value) { values.set(key, value); },
+    async delete(key) { values.delete(key); }
+  };
+  const manager = createTokenManager(secretStorage);
+
+  const token = await manager.rotateToken();
+  assert.equal(await secretStorage.get('vscode-browser-bridge-token'), token);
+  assert.equal(await manager.verifyStoredToken(token), true);
+});
+
 test('rate limiter checks concurrency before spending a rate token', () => {
   const limiter = createRateLimiter({ requestsPerMinute: 1, maxConcurrent: 1 });
   const first = limiter.acquire();
@@ -122,8 +136,8 @@ test('audit log and model selector work predictably', () => {
 
 test('model selection honors explicit families and never falls back outside the allowlist', () => {
   const available = [
-    { id: 'gpt-4o', family: 'copilot' },
-    { id: 'external-chat', family: 'third-party' }
+    { id: 'gpt-4o', family: 'gpt-4o', vendor: 'copilot' },
+    { id: 'external-chat', family: 'external', vendor: 'third-party' }
   ];
   assert.equal(pickModel('gpt-4o', available, ['copilot']).id, 'gpt-4o');
   assert.equal(pickModel('external-chat', available, ['copilot']).id, 'gpt-4o');
@@ -281,6 +295,8 @@ test('extension activation registers lifecycle commands when VS Code is present'
   assert.equal(result.bridge.isActive, false);
   assert.equal(typeof commands.get('vscode-browser-bridge.start'), 'function');
   assert.equal(typeof commands.get('vscode-browser-bridge.stop'), 'function');
+  assert.equal(typeof commands.get('vscode-browser-bridge.copyToken'), 'function');
+  assert.equal(typeof commands.get('vscode-browser-bridge.disable'), 'function');
   assert.ok(subscriptions.length >= 1);
 });
 
@@ -296,7 +312,19 @@ test('extension lifecycle starts and closes its named-pipe server idempotently',
     }
   };
 
-  const result = activate({ subscriptions: [] }, fakeVscode, {
+  const result = activate({
+    subscriptions: [],
+    globalState: {
+      get() { return { [require('../../../package.json').version]: true }; },
+      async update() {}
+    },
+    secrets: {
+      values: new Map(),
+      async get(key) { return this.values.get(key); },
+      async store(key, value) { this.values.set(key, value); },
+      async delete(key) { this.values.delete(key); }
+    }
+  }, fakeVscode, {
     pipePath: '\\\\.\\pipe\\bridge-lifecycle-test',
     serverFactory(options) {
       calls.push({ type: 'create', pipePath: options.pipePath, requestHandler: options.requestHandler });
@@ -318,4 +346,70 @@ test('extension lifecycle starts and closes its named-pipe server idempotently',
   await commands.get('vscode-browser-bridge.stop')();
   assert.equal(result.statusBar.getState(), 'off');
   assert.equal(calls.filter((call) => call.type === 'close').length, 1);
+});
+
+test('bridge requires modal consent and disable revokes its SecretStorage token', async () => {
+  const commands = new Map();
+  const stored = new Map();
+  const globalValues = new Map();
+  const clipboard = { value: '' };
+  const prompts = ['Not now', 'Enable Bridge'];
+  let listenCount = 0;
+  let closeCount = 0;
+  const fakeVscode = {
+    commands: {
+      registerCommand(id, handler) {
+        commands.set(id, handler);
+        return { dispose() { commands.delete(id); } };
+      }
+    },
+    window: {
+      async showWarningMessage(_message, options, ...items) {
+        assert.equal(options.modal, true);
+        assert.equal(items[0], 'Enable Bridge');
+        return prompts.shift();
+      },
+      async showInformationMessage() {}
+    },
+    env: { clipboard: { async writeText(value) { clipboard.value = value; } } }
+  };
+  const context = {
+    subscriptions: [],
+    globalState: {
+      get(key, fallback) { return globalValues.has(key) ? globalValues.get(key) : fallback; },
+      async update(key, value) { globalValues.set(key, value); }
+    },
+    secrets: {
+      async get(key) { return stored.get(key); },
+      async store(key, value) { stored.set(key, value); },
+      async delete(key) { stored.delete(key); }
+    }
+  };
+  const result = activate(context, fakeVscode, {
+    pipePath: '\\\\.\\pipe\\bridge-consent-test',
+    serverFactory() {
+      return {
+        async listen() { listenCount += 1; },
+        async close() { closeCount += 1; }
+      };
+    }
+  });
+
+  const denied = await commands.get('vscode-browser-bridge.start')();
+  assert.equal(denied.ok, false);
+  assert.equal(listenCount, 0);
+
+  const started = await commands.get('vscode-browser-bridge.start')();
+  assert.equal(started.ok, true);
+  assert.equal(listenCount, 1);
+  const token = await context.secrets.get('vscode-browser-bridge-token');
+  assert.ok(token);
+
+  const copied = await commands.get('vscode-browser-bridge.copyToken')();
+  assert.equal(copied.ok, true);
+  assert.equal(clipboard.value, token);
+
+  await commands.get('vscode-browser-bridge.disable')();
+  assert.equal(closeCount, 1);
+  assert.equal(await context.secrets.get('vscode-browser-bridge-token'), undefined);
 });

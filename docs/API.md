@@ -1,6 +1,6 @@
 # API Reference
 
-The bridge is intentionally local-only and uses an authenticated named pipe. The browser or local app never receives a token, and the extension host holds the Copilot entitlement.
+The bridge is intentionally local-only and uses an authenticated named pipe. The trusted local application receives the bearer token only through the explicit copy command; browser code never receives it, and the extension host holds the Copilot entitlement.
 
 ## Headers
 Every request must include:
@@ -16,6 +16,9 @@ Every request must include:
 ### GET /v1/health
 Returns a JSON structure with service metadata and liveness fields.
 
+### GET /v1/models
+Returns the models available through VS Code that match the configured allowed model families.
+
 ### POST /v1/generate
 Accepts a JSON object containing:
 
@@ -27,8 +30,9 @@ Accepts a JSON object containing:
 The bridge may substitute a compatible model if the requested one is unavailable.
 Request bodies are limited to 256 KiB and must use `Content-Type: application/json`.
 The concurrency slot remains held until model generation completes.
+In the VS Code extension, each generation request requires an explicit modal approval before prompt content is sent to a language model. Denied requests return `403 model_request_denied`.
 
 If no language-model client is available, this endpoint returns `503 model_unavailable`; it never fabricates a successful model response.
 
 ## Error model
-Errors return a generic JSON payload with a non-revealing message and a numeric HTTP status. Supported statuses include `400` for invalid input, `401` for failed authentication, `404` for unknown routes, `405` for an unsupported method, `413` for an oversized body, `429` for rate or concurrency limits, and `503` when no model is available.
+Errors return a generic JSON payload with a non-revealing message and a numeric HTTP status. Supported statuses include `400` for invalid input, `401` for failed authentication, `403` for a user-denied model request, `404` for unknown routes, `405` for an unsupported method, `413` for an oversized body, `429` for rate or concurrency limits, and `503` when no model is available.

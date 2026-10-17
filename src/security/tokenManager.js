@@ -57,8 +57,18 @@ function createTokenManager(storage = null) {
     cachedToken = value;
     if (typeof store.set === 'function') {
       await store.set('vscode-browser-bridge-token', value);
+    } else if (typeof store.store === 'function') {
+      await store.store('vscode-browser-bridge-token', value);
     }
     return value;
+  }
+
+  async function deleteToken() {
+    cachedToken = null;
+    if (typeof store.delete === 'function') {
+      await store.delete('vscode-browser-bridge-token');
+    }
+    return true;
   }
 
   async function rotateToken() {
@@ -77,6 +87,7 @@ function createTokenManager(storage = null) {
     verifyToken,
     getToken,
     setToken,
+    deleteToken,
     rotateToken,
     verifyStoredToken
   };

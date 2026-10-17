@@ -60,6 +60,22 @@ function validateGenerateBody(body) {
     throw buildRequestError('invalid_request', 'Messages must be a non-empty array');
   }
 
+  for (const message of body.messages) {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      throw buildRequestError('invalid_request', 'Messages must be objects');
+    }
+    const fields = Object.keys(message);
+    if (fields.some((field) => field !== 'role' && field !== 'content')) {
+      throw buildRequestError('invalid_request', 'Message fields are not supported');
+    }
+    if (!['user', 'assistant'].includes(message.role) || typeof message.content !== 'string') {
+      throw buildRequestError('invalid_request', 'Messages must contain user or assistant text');
+    }
+    if (message.content.length > 128 * 1024) {
+      throw buildRequestError('payload_too_large', 'Message exceeds allowed size');
+    }
+  }
+
   if (Object.prototype.hasOwnProperty.call(body, 'temperature')) {
     if (typeof body.temperature !== 'number' || Number.isNaN(body.temperature)) {
       throw buildRequestError('invalid_request', 'Temperature must be numeric');

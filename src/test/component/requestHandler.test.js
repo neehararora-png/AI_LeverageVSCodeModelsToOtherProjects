@@ -50,6 +50,7 @@ test('request handler serves authenticated health and awaits generate routes', a
   const handler = createBridgeRequestHandler({
     expectedToken: 'test-token',
     availableModels: [{ id: 'gpt-4o', family: 'copilot' }],
+    confirmModelRequest: async (request) => request.messageCount === 1,
     rateLimiter: limiter,
     chatClient: {
       async generate(payload) {
@@ -64,6 +65,10 @@ test('request handler serves authenticated health and awaits generate routes', a
   assert.equal(health.headers['Cache-Control'], 'no-store');
   assert.equal(health.body.ok, true);
   assert.equal(typeof health.body.requestId, 'string');
+
+  const modelList = await send(handler, 'GET', '/v1/models', authHeaders('models-nonce'));
+  assert.equal(modelList.statusCode, 200);
+  assert.deepEqual(modelList.body.models.map((model) => model.id), ['gpt-4o']);
 
   const generate = await send(handler, 'POST', '/v1/generate', {
     ...authHeaders('generate-nonce'),
@@ -106,4 +111,27 @@ test('request handler reports unavailable model instead of returning mock output
   assert.equal(result.statusCode, 503);
   assert.equal(result.body.error.code, 'model_unavailable');
   assert.notEqual(result.body.response, 'Generated response');
+});
+
+test('request handler requires explicit user approval before model generation', async () => {
+  let generationCount = 0;
+  const handler = createBridgeRequestHandler({
+    expectedToken: 'test-token',
+    availableModels: [{ id: 'gpt-4o', family: 'gpt-4o', vendor: 'copilot' }],
+    confirmModelRequest: async () => false,
+    chatClient: {
+      async generate() {
+        generationCount += 1;
+        return { model: 'gpt-4o', response: 'should not run' };
+      }
+    }
+  });
+  const result = await send(handler, 'POST', '/v1/generate', {
+    ...authHeaders('denied-model-request'),
+    'Content-Type': 'application/json'
+  }, JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }] }));
+
+  assert.equal(result.statusCode, 403);
+  assert.equal(result.body.error.code, 'model_request_denied');
+  assert.equal(generationCount, 0);
 });
