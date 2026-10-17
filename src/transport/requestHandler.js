@@ -77,6 +77,7 @@ function createBridgeRequestHandler(options = {}) {
         return authenticateRequest(headers, expected, { replayCache });
       }
     },
+    onAuthenticatedRequest: options.onActivity,
     rateLimiter,
     validateBody(rawBody) {
       return validateGenerateBody(parseStrictJson(rawBody, { maxChars: maxBodyBytes }));

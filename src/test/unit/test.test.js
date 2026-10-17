@@ -414,3 +414,49 @@ test('bridge requires modal consent and disable revokes its SecretStorage token'
   assert.equal(closeCount, 1);
   assert.equal(await context.secrets.get('vscode-browser-bridge-token'), undefined);
 });
+
+test('idle timeout closes the listener and updates bridge state', async () => {
+  const commands = new Map();
+  let closeCount = 0;
+  const fakeVscode = {
+    commands: {
+      registerCommand(id, handler) {
+        commands.set(id, handler);
+        return { dispose() { commands.delete(id); } };
+      }
+    },
+    window: {
+      async showWarningMessage() { return 'Enable Bridge'; }
+    }
+  };
+  const context = {
+    subscriptions: [],
+    globalState: {
+      get() { return { [require('../../../package.json').version]: true }; },
+      async update() {}
+    },
+    secrets: {
+      values: new Map(),
+      async get(key) { return this.values.get(key); },
+      async store(key, value) { this.values.set(key, value); },
+      async delete(key) { this.values.delete(key); }
+    }
+  };
+  const result = activate(context, fakeVscode, {
+    pipePath: '\\\\.\\pipe\\bridge-idle-test',
+    idleShutdownTimeoutMs: 5,
+    serverFactory() {
+      return {
+        async listen() {},
+        async close() { closeCount += 1; }
+      };
+    }
+  });
+
+  await commands.get('vscode-browser-bridge.start')();
+  assert.equal(result.bridge.isActive, true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(closeCount, 1);
+  assert.equal(result.bridge.isActive, false);
+  assert.equal(result.statusBar.getState(), 'off');
+});
