@@ -27,4 +27,6 @@ Starting the named pipe requires a versioned modal bridge-consent decision. Each
 
 When audit is enabled, request outcomes are written under VS Code global storage with only the random request ID, endpoint path, outcome, duration, and response byte count. Request headers and prompt/response content are not audit fields, and audit-write failures do not change the HTTP response.
 
+Idle shutdown is reset only after successful request authentication, so unauthenticated traffic cannot keep the named-pipe listener alive. When the idle timer closes the listener, the extension status returns to off; explicit stop and disposal cancel the timer.
+
 This project avoids third-party packages and does not place secrets in the repository. The implementation also rejects dangerous APIs and blocks secret-like material in logs.

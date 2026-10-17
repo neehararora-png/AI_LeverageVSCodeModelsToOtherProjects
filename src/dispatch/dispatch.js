@@ -44,6 +44,14 @@ async function dispatch(request, dependencies = {}) {
     return { statusCode: 401, payload: buildErrorPayload('unauthorized', 'Unauthorized.', requestId) };
   }
 
+  if (typeof dependencies.onAuthenticatedRequest === 'function') {
+    try {
+      dependencies.onAuthenticatedRequest();
+    } catch {
+      // Activity tracking must not interrupt an authenticated request.
+    }
+  }
+
   if (rateLimiter && typeof rateLimiter.acquire === 'function') {
     const lease = rateLimiter.acquire();
     if (!lease.ok) {

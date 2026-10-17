@@ -11,6 +11,7 @@ const { createTokenManager } = require('./security/tokenManager');
 const { createChatClient } = require('./lm/chatClient');
 const path = require('node:path');
 const { createAuditLog } = require('./audit/auditLog');
+const { createIdleShutdown } = require('./transport/idleShutdown');
 
 const CONSENT_STATE_KEY = 'vscode-browser-bridge.consent';
 const EXTENSION_VERSION = require('../package.json').version;
@@ -55,6 +56,7 @@ function activate(context = {}, vscodeApi = null, options = {}) {
   const vscode = resolveVSCodeApi(vscodeApi);
   let statusItem = null;
   let serverInstance = null;
+  let idleShutdown = null;
   let startPromise = null;
   let stopPromise = null;
   const tokenManager = createTokenManager(context.secrets || null);
@@ -139,6 +141,11 @@ function activate(context = {}, vscodeApi = null, options = {}) {
         chatClient,
         auditLog,
         onAuditError: options.onAuditError,
+        onActivity() {
+          if (idleShutdown) {
+            idleShutdown.reset();
+          }
+        },
         confirmModelRequest: apiDependencies.confirmModelRequest || (async ({ model, messageCount }) => {
           if (!vscode?.window || typeof vscode.window.showWarningMessage !== 'function') {
             return false;
@@ -166,6 +173,25 @@ function activate(context = {}, vscodeApi = null, options = {}) {
 
       await server.listen();
       serverInstance = server;
+      idleShutdown = createIdleShutdown(server, {
+        idleShutdownMinutes: settings.idleShutdownMinutes,
+        timeoutMs: options.idleShutdownTimeoutMs,
+        onShutdown() {
+          if (serverInstance === server) {
+            serverInstance = null;
+            idleShutdown = null;
+            bridge.isActive = false;
+            updateStatusBar('off');
+          }
+        },
+        onError(error) {
+          updateStatusBar('error');
+          if (typeof options.onError === 'function') {
+            options.onError(error);
+          }
+        }
+      });
+      idleShutdown.reset();
       bridge.isActive = true;
       updateStatusBar('listening');
       return { ok: true, state: statusBar.getState() };
@@ -223,6 +249,10 @@ function activate(context = {}, vscodeApi = null, options = {}) {
 
     const server = serverInstance;
     serverInstance = null;
+    if (idleShutdown) {
+      idleShutdown.stop();
+      idleShutdown = null;
+    }
     stopPromise = Promise.resolve().then(() => server.close()).then(() => {
       bridge.isActive = false;
       updateStatusBar('off');

@@ -176,3 +176,19 @@ test('audit write failures do not change the HTTP response', async () => {
   assert.equal(result.body.ok, true);
   assert.deepEqual(auditErrors, ['disk unavailable']);
 });
+
+test('request activity resets the idle shutdown timer without affecting the response', async () => {
+  let activityCount = 0;
+  const handler = createBridgeRequestHandler({
+    expectedToken: 'test-token',
+    onActivity() { activityCount += 1; }
+  });
+
+  const result = await send(handler, 'GET', '/v1/health', authHeaders('activity-reset'));
+  assert.equal(result.statusCode, 200);
+  assert.equal(activityCount, 1);
+
+  const rejected = await send(handler, 'GET', '/v1/health', authHeaders('unauthenticated-activity', 'wrong-token'));
+  assert.equal(rejected.statusCode, 401);
+  assert.equal(activityCount, 1);
+});
