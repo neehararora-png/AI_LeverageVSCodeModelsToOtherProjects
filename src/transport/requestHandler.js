@@ -60,6 +60,55 @@ function readBoundedBody(request, maxBodyBytes) {
   });
 }
 
+async function awaitModelDiscovery(getAvailableModels, signal, requestTimeoutMs, requestId) {
+  let timeout = null;
+  let abortListener = null;
+  const cancellationResult = new Promise((resolve) => {
+    if (signal && typeof signal.addEventListener === 'function') {
+      abortListener = () => resolve({
+        statusCode: 499,
+        payload: {
+          ok: false,
+          error: { code: 'client_disconnected', message: 'Request was cancelled.' },
+          requestId
+        }
+      });
+      if (signal.aborted) {
+        abortListener();
+      } else {
+        signal.addEventListener('abort', abortListener, { once: true });
+      }
+    }
+    if (Number.isInteger(requestTimeoutMs) && requestTimeoutMs > 0) {
+      timeout = setTimeout(() => resolve({
+        statusCode: 504,
+        payload: {
+          ok: false,
+          error: { code: 'request_timeout', message: 'Model discovery timed out.' },
+          requestId
+        }
+      }), requestTimeoutMs);
+    }
+  });
+
+  try {
+    if (signal?.aborted) {
+      return await cancellationResult;
+    }
+    return await Promise.race([
+      Promise.resolve().then(getAvailableModels),
+      cancellationResult
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    if (abortListener && signal) {
+      signal.removeEventListener('abort', abortListener);
+    }
+  }
+}
+
 function createBridgeRequestHandler(options = {}) {
   const maxBodyBytes = Number.isInteger(options.maxBodyBytes) ? Math.max(1, options.maxBodyBytes) : 256 * 1024;
   const replayCache = options.replayCache || createReplayNonceCache();
@@ -94,8 +143,13 @@ function createBridgeRequestHandler(options = {}) {
       return validateGenerateBody(parseStrictJson(rawBody, { maxChars: maxBodyBytes }));
     },
     handlers: {
-      async '/v1/health'({ requestId }) {
-        const availableModels = await getAvailableModels();
+      async '/v1/health'({ requestId, signal }) {
+        const availableModels = await awaitModelDiscovery(
+          getAvailableModels, signal, options.requestTimeoutMs, requestId
+        );
+        if (!Array.isArray(availableModels)) {
+          return availableModels;
+        }
         const modelsAvailable = availableModels.some((model) => matchesAllowed([
           model.id,
           model.name,
@@ -111,8 +165,13 @@ function createBridgeRequestHandler(options = {}) {
           })
         };
       },
-      async '/v1/models'({ requestId }) {
-        const availableModels = await getAvailableModels();
+      async '/v1/models'({ requestId, signal }) {
+        const availableModels = await awaitModelDiscovery(
+          getAvailableModels, signal, options.requestTimeoutMs, requestId
+        );
+        if (!Array.isArray(availableModels)) {
+          return availableModels;
+        }
         const models = availableModels.filter((model) => matchesAllowed([
           model.id,
           model.name,
