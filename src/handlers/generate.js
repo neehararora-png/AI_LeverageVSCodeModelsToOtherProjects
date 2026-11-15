@@ -83,6 +83,10 @@ async function handleGenerate(request = {}, dependencies = {}) {
   });
 
   try {
+    if (request.signal?.aborted) {
+      return await cancellationResult;
+    }
+
     if (typeof dependencies.confirmModelRequest === 'function') {
       const approved = await Promise.race([
         Promise.resolve().then(() => dependencies.confirmModelRequest({
