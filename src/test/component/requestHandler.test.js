@@ -180,6 +180,31 @@ test('request handler times out model generation and releases its concurrency le
   assert.equal(limiter.active, 0);
 });
 
+test('request handler times out model discovery and releases its concurrency lease', async () => {
+  const limiter = {
+    active: 0,
+    acquire() {
+      this.active += 1;
+      return { ok: true, release: () => { this.active -= 1; } };
+    }
+  };
+  const handler = createBridgeRequestHandler({
+    expectedToken: 'test-token',
+    requestTimeoutMs: 5,
+    rateLimiter: limiter,
+    chatClient: { listModels: () => new Promise(() => {}) }
+  });
+
+  const result = await send(handler, 'POST', '/v1/generate', {
+    ...authHeaders('timed-out-model-discovery'),
+    'Content-Type': 'application/json'
+  }, JSON.stringify({ model: 'gpt-4o', messages: [{ role: 'user', content: 'hello' }] }));
+
+  assert.equal(result.statusCode, 504);
+  assert.equal(result.body.error.code, 'request_timeout');
+  assert.equal(limiter.active, 0);
+});
+
 test('request handler writes privacy-safe audit metadata for responses', async () => {
   const entries = [];
   const handler = createBridgeRequestHandler({

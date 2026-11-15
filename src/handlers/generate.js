@@ -4,40 +4,6 @@
 const { pickModel } = require('../lm/selector');
 
 async function handleGenerate(request = {}, dependencies = {}) {
-  const modelList = Array.isArray(dependencies.availableModels) ? dependencies.availableModels : [];
-  const chosen = pickModel(request.model || '', modelList, dependencies.allowedFamilies || ['copilot']);
-  if (modelList.length === 0 || !chosen) {
-    return {
-      statusCode: 503,
-      payload: {
-        ok: false,
-        error: {
-          code: 'model_unavailable',
-          message: 'No compatible language model is available.'
-        },
-        requestId: request.requestId || 'generate-request'
-      }
-    };
-  }
-
-  const generator = dependencies.chatClient && typeof dependencies.chatClient.generate === 'function'
-    ? dependencies.chatClient.generate.bind(dependencies.chatClient)
-    : null;
-
-  if (!generator) {
-    return {
-      statusCode: 503,
-      payload: {
-        ok: false,
-        error: {
-          code: 'model_unavailable',
-          message: 'No language model is available.'
-        },
-        requestId: request.requestId || 'generate-request'
-      }
-    };
-  }
-
   const cancellationSource = typeof dependencies.cancellationTokenSourceFactory === 'function'
     ? dependencies.cancellationTokenSourceFactory()
     : null;
@@ -85,6 +51,51 @@ async function handleGenerate(request = {}, dependencies = {}) {
   try {
     if (request.signal?.aborted) {
       return await cancellationResult;
+    }
+
+    let modelList = Array.isArray(dependencies.availableModels) ? dependencies.availableModels : [];
+    if (typeof dependencies.getAvailableModels === 'function') {
+      const availableModels = await Promise.race([
+        Promise.resolve().then(() => dependencies.getAvailableModels()),
+        cancellationResult
+      ]);
+      if (availableModels && availableModels.statusCode) {
+        return availableModels;
+      }
+      modelList = Array.isArray(availableModels) ? availableModels : [];
+    }
+
+    const chosen = pickModel(request.model || '', modelList, dependencies.allowedFamilies || ['copilot']);
+    if (modelList.length === 0 || !chosen) {
+      return {
+        statusCode: 503,
+        payload: {
+          ok: false,
+          error: {
+            code: 'model_unavailable',
+            message: 'No compatible language model is available.'
+          },
+          requestId: request.requestId || 'generate-request'
+        }
+      };
+    }
+
+    const generator = dependencies.chatClient && typeof dependencies.chatClient.generate === 'function'
+      ? dependencies.chatClient.generate.bind(dependencies.chatClient)
+      : null;
+
+    if (!generator) {
+      return {
+        statusCode: 503,
+        payload: {
+          ok: false,
+          error: {
+            code: 'model_unavailable',
+            message: 'No language model is available.'
+          },
+          requestId: request.requestId || 'generate-request'
+        }
+      };
     }
 
     if (typeof dependencies.confirmModelRequest === 'function') {

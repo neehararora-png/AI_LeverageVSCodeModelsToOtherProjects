@@ -128,9 +128,8 @@ function createBridgeRequestHandler(options = {}) {
         return { statusCode: 200, payload: { ok: true, models, requestId } };
       },
       async '/v1/generate'({ body, requestId, signal }) {
-        const availableModels = await getAvailableModels();
         return handleGenerate({ ...body, requestId, signal }, {
-          availableModels,
+          getAvailableModels,
           allowedFamilies: options.allowedModelFamilies,
           chatClient,
           confirmModelRequest: options.confirmModelRequest,
