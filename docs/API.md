@@ -31,6 +31,7 @@ The bridge may substitute a compatible model if the requested one is unavailable
 Request bodies are limited to 256 KiB and must use `Content-Type: application/json`.
 The concurrency slot remains held until model generation completes.
 In the VS Code extension, each generation request requires an explicit modal approval before prompt content is sent to a language model. Denied requests return `403 model_request_denied`. Model discovery, approval, and generation are bounded by the configured request timeout and cancelled if the local client disconnects.
+Model discovery for the health and models endpoints uses the same configured timeout and disconnect cancellation.
 
 If no language-model client is available, this endpoint returns `503 model_unavailable`; it never fabricates a successful model response.
 

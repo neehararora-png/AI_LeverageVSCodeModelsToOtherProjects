@@ -205,6 +205,36 @@ test('request handler times out model discovery and releases its concurrency lea
   assert.equal(limiter.active, 0);
 });
 
+test('request handler times out stalled model discovery for the models endpoint', async () => {
+  const handler = createBridgeRequestHandler({
+    expectedToken: 'test-token',
+    requestTimeoutMs: 5,
+    chatClient: { listModels: () => new Promise(() => {}) }
+  });
+  const request = Readable.from([]);
+  request.method = 'GET';
+  request.url = '/v1/models';
+  request.headers = authHeaders('timed-out-model-list');
+  const response = {
+    headersSent: false,
+    destroyed: false,
+    writeHead(statusCode, responseHeaders) {
+      this.statusCode = statusCode;
+      this.headers = responseHeaders;
+      this.headersSent = true;
+    },
+    end(responseBody) { this.body = JSON.parse(responseBody); }
+  };
+
+  await Promise.race([
+    handler(request, response),
+    new Promise((resolve) => setTimeout(resolve, 50))
+  ]);
+
+  assert.equal(response.statusCode, 504);
+  assert.equal(response.body.error.code, 'request_timeout');
+});
+
 test('request handler writes privacy-safe audit metadata for responses', async () => {
   const entries = [];
   const handler = createBridgeRequestHandler({
