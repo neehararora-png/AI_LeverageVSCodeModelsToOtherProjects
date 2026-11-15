@@ -102,3 +102,55 @@ test('client disconnect during approval cancels without starting generation', as
   assert.equal(setup.state.cancelled, 1);
   assert.equal(setup.state.disposed, 1);
 });
+
+test('already-aborted requests do not open approval prompts or start model calls', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let promptCount = 0;
+  let generationCount = 0;
+  const setup = dependencies({
+    confirmModelRequest() {
+      promptCount += 1;
+      return true;
+    },
+    chatClient: {
+      generate() {
+        generationCount += 1;
+        return { model: 'gpt-4o', response: 'unexpected' };
+      }
+    }
+  });
+
+  const result = await handleGenerate({ ...request, signal: controller.signal }, setup.options);
+
+  assert.equal(result.statusCode, 499);
+  assert.equal(result.payload.error.code, 'client_disconnected');
+  assert.equal(promptCount, 0);
+  assert.equal(generationCount, 0);
+  assert.equal(setup.state.cancelled, 1);
+  assert.equal(setup.state.disposed, 1);
+});
+
+test('client disconnect during model discovery cancels before prompting', async () => {
+  const controller = new AbortController();
+  let promptCount = 0;
+  const setup = dependencies({
+    availableModels: undefined,
+    getAvailableModels: () => new Promise(() => {}),
+    confirmModelRequest() {
+      promptCount += 1;
+      return true;
+    },
+    chatClient: { generate: () => assert.fail('model must not run after disconnect') }
+  });
+  const pending = handleGenerate({ ...request, signal: controller.signal }, setup.options);
+  setImmediate(() => controller.abort());
+
+  const result = await pending;
+
+  assert.equal(result.statusCode, 499);
+  assert.equal(result.payload.error.code, 'client_disconnected');
+  assert.equal(promptCount, 0);
+  assert.equal(setup.state.cancelled, 1);
+  assert.equal(setup.state.disposed, 1);
+});
