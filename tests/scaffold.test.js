@@ -24,23 +24,29 @@ const requiredFiles = [
   'scripts/secret-scan.js'
 ];
 
-function readZipEntryNames(artifact) {
+function readZipEntries(artifact) {
   const archive = fs.readFileSync(artifact);
   const endRecordOffset = archive.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   assert.notEqual(endRecordOffset, -1, 'VSIX must be a ZIP archive');
   const entryCount = archive.readUInt16LE(endRecordOffset + 10);
   let offset = archive.readUInt32LE(endRecordOffset + 16);
-  const fileNames = [];
+  const entries = new Map();
 
   for (let index = 0; index < entryCount; index += 1) {
     assert.equal(archive.readUInt32LE(offset), 0x02014b50, 'ZIP central directory entry is valid');
     const nameLength = archive.readUInt16LE(offset + 28);
     const extraLength = archive.readUInt16LE(offset + 30);
     const commentLength = archive.readUInt16LE(offset + 32);
-    fileNames.push(archive.toString('utf8', offset + 46, offset + 46 + nameLength));
+    const name = archive.toString('utf8', offset + 46, offset + 46 + nameLength);
+    const localHeaderOffset = archive.readUInt32LE(offset + 42);
+    const localNameLength = archive.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = archive.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressedSize = archive.readUInt32LE(offset + 20);
+    entries.set(name, archive.subarray(dataStart, dataStart + compressedSize));
     offset += 46 + nameLength + extraLength + commentLength;
   }
-  return fileNames;
+  return entries;
 }
 
 function assertRuntimeFiles(fileNames) {
@@ -81,5 +87,8 @@ test('VSIX package contains the extension entry point and runtime sources', (con
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const artifact = path.join(directory, 'bridge.vsix');
   createPackage(artifact);
-  assertRuntimeFiles(readZipEntryNames(artifact));
+  const entries = readZipEntries(artifact);
+  assertRuntimeFiles([...entries.keys()]);
+  const manifest = entries.get('extension.vsixmanifest').toString('utf8');
+  assert.match(manifest, /<Asset Type="Microsoft\.VisualStudio\.Code\.Manifest" Path="extension\/package\.json"\s*\/>/);
 });

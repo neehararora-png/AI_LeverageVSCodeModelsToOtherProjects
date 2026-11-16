@@ -89,9 +89,9 @@ function makeCentralDirectoryEntry(fileName, data, offset) {
   entry.writeUInt16LE(0, 12);
   entry.writeUInt16LE(dt.dosTime, 14);
   entry.writeUInt16LE(dt.dosDate, 16);
-  entry.writeUInt32LE(crc, 18);
-  entry.writeUInt32LE(data.length, 22);
-  entry.writeUInt32LE(data.length, 26);
+  entry.writeUInt32LE(crc, 16);
+  entry.writeUInt32LE(data.length, 20);
+  entry.writeUInt32LE(data.length, 24);
   entry.writeUInt16LE(name.length, 28);
   entry.writeUInt16LE(0, 30);
   entry.writeUInt16LE(0, 32);
@@ -118,7 +118,7 @@ function makeEocd(totalEntries, centralSize, centralOffset) {
 function createPackage(outputPath) {
 const artifact = outputPath ? path.resolve(outputPath) : path.join(root, 'vscode-browser-bridge.vsix');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
-const manifest = `<?xml version="1.0" encoding="utf-8"?>\n<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">\n  <Metadata>\n    <Identity Id="vscode-browser-bridge" Version="0.1.0" Language="en-US" Publisher="NeeharArora" />\n    <DisplayName>VS Code Browser Bridge</DisplayName>\n    <Description>A local Windows named-pipe bridge to Copilot-backed models.</Description>\n  </Metadata>\n  <Installation>\n    <InstallationTarget Id="Microsoft.VisualStudio.Code" />\n  </Installation>\n</PackageManifest>\n`;
+const manifest = `<?xml version="1.0" encoding="utf-8"?>\n<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">\n  <Metadata>\n    <Identity Id="vscode-browser-bridge" Version="0.1.0" Language="en-US" Publisher="NeeharArora" />\n    <DisplayName>VS Code Browser Bridge</DisplayName>\n    <Description>A local Windows named-pipe bridge to Copilot-backed models.</Description>\n  </Metadata>\n  <Installation>\n    <InstallationTarget Id="Microsoft.VisualStudio.Code" />\n  </Installation>\n  <Assets>\n    <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" />\n  </Assets>\n</PackageManifest>\n`;
 const contentTypes = `<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="xml" ContentType="application/xml"/>\n  <Override PartName="/extension.vsixmanifest" ContentType="application/vnd.code.vsixmanifest+xml"/>\n  <Override PartName="/extension/package.json" ContentType="application/json"/>\n</Types>\n`;
 
 const fileEntries = [
