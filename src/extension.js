@@ -59,6 +59,7 @@ function activate(context = {}, vscodeApi = null, options = {}) {
   let idleShutdown = null;
   let startPromise = null;
   let stopPromise = null;
+  let disablePromise = null;
   const tokenManager = createTokenManager(context.secrets || null);
 
   const ensureBridgeConsent = async () => {
@@ -102,6 +103,9 @@ function activate(context = {}, vscodeApi = null, options = {}) {
   };
 
   const startBridge = () => {
+    if (disablePromise) {
+      return disablePromise.then(() => startBridge());
+    }
     if (stopPromise) {
       return stopPromise.then(() => startBridge());
     }
@@ -228,15 +232,23 @@ function activate(context = {}, vscodeApi = null, options = {}) {
     return { ok: true };
   };
 
-  const disableBridge = async () => {
-    await stopBridge();
-    const stateStore = context.globalState;
-    if (stateStore && typeof stateStore.get === 'function' && typeof stateStore.update === 'function') {
-      const consentState = stateStore.get(CONSENT_STATE_KEY, {});
-      await stateStore.update(CONSENT_STATE_KEY, recordConsent(consentState, EXTENSION_VERSION, false));
+  const disableBridge = () => {
+    if (disablePromise) {
+      return disablePromise;
     }
-    await tokenManager.deleteToken();
-    return { ok: true, state: statusBar.getState() };
+    disablePromise = (async () => {
+      await stopBridge();
+      const stateStore = context.globalState;
+      if (stateStore && typeof stateStore.get === 'function' && typeof stateStore.update === 'function') {
+        const consentState = stateStore.get(CONSENT_STATE_KEY, {});
+        await stateStore.update(CONSENT_STATE_KEY, recordConsent(consentState, EXTENSION_VERSION, false));
+      }
+      await tokenManager.deleteToken();
+      return { ok: true, state: statusBar.getState() };
+    })().finally(() => {
+      disablePromise = null;
+    });
+    return disablePromise;
   };
 
   const stopBridge = async () => {
