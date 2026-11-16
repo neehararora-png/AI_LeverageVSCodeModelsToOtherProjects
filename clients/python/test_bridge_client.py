@@ -146,6 +146,22 @@ class BridgeClientTests(unittest.TestCase):
         self.assertEqual(connection.response.read_limit, 41)
         self.assertTrue(connection.closed)
 
+    def test_oversized_request_is_rejected_before_connecting(self):
+        connection_attempts = []
+
+        def create_connection(_path):
+            connection_attempts.append(True)
+            return self.fail("oversized request must not connect")
+
+        client = BridgeClient(token="secret-token", connection_factory=create_connection)
+
+        with self.assertRaises(BridgeError) as raised:
+            client.generate("x" * (256 * 1024))
+
+        self.assertEqual(raised.exception.status_code, 413)
+        self.assertEqual(raised.exception.code, "payload_too_large")
+        self.assertEqual(connection_attempts, [])
+
 
 if __name__ == "__main__":
     unittest.main()
