@@ -106,6 +106,26 @@ class BridgeClientTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "model_request_denied")
         self.assertTrue(connection.closed)
 
+    def test_successful_non_object_response_is_rejected(self):
+        connection = FakeConnection(payload=["unexpected"])
+        client = BridgeClient(token="secret-token", connection_factory=lambda _path: connection)
+
+        with self.assertRaises(BridgeError) as raised:
+            client.health()
+
+        self.assertEqual(raised.exception.status_code, 200)
+        self.assertEqual(raised.exception.code, "invalid_response")
+
+    def test_malformed_error_payload_uses_generic_bridge_error(self):
+        connection = FakeConnection(status=503, payload={"error": None})
+        client = BridgeClient(token="secret-token", connection_factory=lambda _path: connection)
+
+        with self.assertRaises(BridgeError) as raised:
+            client.health()
+
+        self.assertEqual(raised.exception.status_code, 503)
+        self.assertEqual(raised.exception.code, "request_failed")
+
 
 if __name__ == "__main__":
     unittest.main()
