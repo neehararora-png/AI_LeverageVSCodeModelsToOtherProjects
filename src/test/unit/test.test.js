@@ -380,10 +380,16 @@ test('bridge requires modal consent and disable revokes its SecretStorage token'
   const commands = new Map();
   const stored = new Map();
   const globalValues = new Map();
+  const extensionVersion = require('../../../package.json').version;
   const clipboard = { value: '' };
   const prompts = ['Not now', 'Enable Bridge'];
   let listenCount = 0;
   let closeCount = 0;
+  let delayRevocation = false;
+  let signalRevocationStarted;
+  let releaseRevocation;
+  const revocationStarted = new Promise((resolve) => { signalRevocationStarted = resolve; });
+  const revocationGate = new Promise((resolve) => { releaseRevocation = resolve; });
   const fakeVscode = {
     commands: {
       registerCommand(id, handler) {
@@ -405,7 +411,14 @@ test('bridge requires modal consent and disable revokes its SecretStorage token'
     subscriptions: [],
     globalState: {
       get(key, fallback) { return globalValues.has(key) ? globalValues.get(key) : fallback; },
-      async update(key, value) { globalValues.set(key, value); }
+      async update(key, value) {
+        if (delayRevocation && value[extensionVersion] === false) {
+          delayRevocation = false;
+          signalRevocationStarted();
+          await revocationGate;
+        }
+        globalValues.set(key, value);
+      }
     },
     secrets: {
       async get(key) { return stored.get(key); },
@@ -437,9 +450,20 @@ test('bridge requires modal consent and disable revokes its SecretStorage token'
   assert.equal(copied.ok, true);
   assert.equal(clipboard.value, token);
 
-  await commands.get('vscode-browser-bridge.disable')();
+  delayRevocation = true;
+  const disabling = commands.get('vscode-browser-bridge.disable')();
+  await revocationStarted;
+  const restarting = commands.get('vscode-browser-bridge.start')();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(listenCount, 1);
+  releaseRevocation();
+  await disabling;
+  const restartResult = await restarting;
+
   assert.equal(closeCount, 1);
   assert.equal(await context.secrets.get('vscode-browser-bridge-token'), undefined);
+  assert.equal(restartResult.reason, 'consent_required');
+  assert.equal(listenCount, 1);
 });
 
 test('idle timeout closes the listener and updates bridge state', async () => {
