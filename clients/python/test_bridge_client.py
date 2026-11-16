@@ -10,9 +10,12 @@ class FakeResponse:
     def __init__(self, status, payload):
         self.status = status
         self.payload = payload
+        self.read_limit = None
 
-    def read(self):
-        return json.dumps(self.payload).encode("utf-8")
+    def read(self, size=None):
+        self.read_limit = size
+        body = json.dumps(self.payload).encode("utf-8")
+        return body if size is None else body[:size]
 
 
 class FakeConnection:
@@ -21,12 +24,13 @@ class FakeConnection:
         self.payload = payload or {"ok": True}
         self.request_data = None
         self.closed = False
+        self.response = FakeResponse(status, self.payload)
 
     def request(self, method, path, body=None, headers=None):
         self.request_data = (method, path, body, headers)
 
     def getresponse(self):
-        return FakeResponse(self.status, self.payload)
+        return self.response
 
     def close(self):
         self.closed = True
@@ -125,6 +129,22 @@ class BridgeClientTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 503)
         self.assertEqual(raised.exception.code, "request_failed")
+
+    def test_oversized_response_is_rejected_after_reading_only_limit_plus_one(self):
+        connection = FakeConnection(payload={"response": "x" * 100})
+        client = BridgeClient(
+            token="secret-token",
+            connection_factory=lambda _path: connection,
+            max_response_bytes=40,
+        )
+
+        with self.assertRaises(BridgeError) as raised:
+            client.health()
+
+        self.assertEqual(raised.exception.status_code, 200)
+        self.assertEqual(raised.exception.code, "response_too_large")
+        self.assertEqual(connection.response.read_limit, 41)
+        self.assertTrue(connection.closed)
 
 
 if __name__ == "__main__":
