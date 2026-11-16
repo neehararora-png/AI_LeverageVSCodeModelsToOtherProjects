@@ -91,4 +91,6 @@ test('VSIX package contains the extension entry point and runtime sources', (con
   assertRuntimeFiles([...entries.keys()]);
   const manifest = entries.get('extension.vsixmanifest').toString('utf8');
   assert.match(manifest, /<Asset Type="Microsoft\.VisualStudio\.Code\.Manifest" Path="extension\/package\.json"\s*\/>/);
+  const extensionPackage = JSON.parse(entries.get('extension/package.json').toString('utf8'));
+  assert.ok(manifest.includes(`Identity Id="${extensionPackage.name}" Version="${extensionPackage.version}"`));
 });
