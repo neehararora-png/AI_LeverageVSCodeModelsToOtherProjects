@@ -3,6 +3,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const { sanitizeSettings } = require('../../config/settings');
 const { derivePipeName, thePipePath } = require('../../transport/pipePath');
@@ -133,6 +136,24 @@ test('audit log and model selector work predictably', () => {
   assert.equal(picked.id, 'gpt-4o' || picked.id, true);
   assert.equal(extractBearerToken({ Authorization: 'Bearer abc123' }), 'abc123');
   assert.match(redactSecret('verysecretvalue'), /\*\*\*/);
+});
+
+test('audit log retains no more than its configured entry limit', (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'vscode-bridge-audit-'));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const timestamps = [1000, 2000, 3000];
+  context.mock.method(Date, 'now', () => timestamps.shift());
+  const audit = createAuditLog(directory, { maxEntries: 2, maxFiles: 5 });
+
+  audit.writeEntry({ requestId: 'first', endpoint: '/v1/health' });
+  audit.writeEntry({ requestId: 'second', endpoint: '/v1/health' });
+  audit.writeEntry({ requestId: 'third', endpoint: '/v1/health' });
+
+  const entries = fs.readdirSync(directory)
+    .filter((name) => name.endsWith('.jsonl'))
+    .flatMap((name) => fs.readFileSync(path.join(directory, name), 'utf8').trim().split('\n'))
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(entries.map((entry) => entry.requestId), ['second', 'third']);
 });
 
 test('model selection honors explicit families and never falls back outside the allowlist', () => {
