@@ -105,12 +105,18 @@ class BridgeClient:
                 result = json.loads(raw_body.decode("utf-8")) if raw_body else {}
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
                 raise BridgeError("Bridge returned an invalid JSON response.", response.status, "invalid_response") from error
+            if not isinstance(result, dict):
+                raise BridgeError("Bridge returned an invalid JSON response.", response.status, "invalid_response")
             if response.status < 200 or response.status >= 300:
-                error = result.get("error", {}) if isinstance(result, dict) else {}
+                error = result.get("error")
+                if not isinstance(error, dict):
+                    error = {}
+                message = error.get("message")
+                code = error.get("code")
                 raise BridgeError(
-                    error.get("message", "Bridge request failed."),
+                    message if isinstance(message, str) else "Bridge request failed.",
                     response.status,
-                    error.get("code", "request_failed"),
+                    code if isinstance(code, str) else "request_failed",
                 )
             return result
         finally:
