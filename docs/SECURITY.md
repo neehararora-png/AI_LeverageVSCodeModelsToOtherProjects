@@ -15,7 +15,7 @@
 | Token bucket + concurrency | `src/security/rateLimiter.js` | `src/test/unit/test.test.js` |
 | Consent gate | `src/consent/consentGate.js` | `src/test/unit/test.test.js` |
 | Status visibility | `src/ui/statusBar.js` | `src/test/unit/test.test.js` |
-| Metadata-only request auditing | `src/transport/requestHandler.js`, `src/audit/auditLog.js` | `src/test/component/requestHandler.test.js` |
+| Metadata-only request auditing with a 100-entry, five-file default retention limit | `src/transport/requestHandler.js`, `src/audit/auditLog.js` | `src/test/component/requestHandler.test.js`, `src/test/unit/test.test.js` |
 | Secret redaction | `src/security/redact.js` | `src/test/unit/test.test.js` |
 | Route/auth ordering | `src/dispatch/dispatch.js` | `src/test/unit/test.test.js` |
 | Pipe server lifecycle | `src/transport/pipeServer.js` | `src/test/component/pipeServer.test.js` |
