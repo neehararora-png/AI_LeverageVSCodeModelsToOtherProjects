@@ -8,6 +8,8 @@ import socket
 import time
 import uuid
 
+DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
 
 class BridgeError(RuntimeError):
     def __init__(self, message, status_code=None, code=None):
@@ -63,11 +65,15 @@ class _PipeRawReader(io.RawIOBase):
 
 
 class BridgeClient:
-    def __init__(self, pipe_name=None, client_id=None, token=None, connection_factory=None):
+    def __init__(self, pipe_name=None, client_id=None, token=None, connection_factory=None,
+                 max_response_bytes=DEFAULT_MAX_RESPONSE_BYTES):
+        if not isinstance(max_response_bytes, int) or isinstance(max_response_bytes, bool) or max_response_bytes < 1:
+            raise ValueError("max_response_bytes must be a positive integer.")
         self.pipe_name = pipe_name
         self.client_id = client_id or "python-client"
         self.token = token or os.getenv("VSCODE_BROWSER_BRIDGE_TOKEN")
         self.connection_factory = connection_factory or _PipeHTTPConnection
+        self.max_response_bytes = max_response_bytes
 
     def _pipe_path(self):
         if self.pipe_name:
@@ -100,7 +106,13 @@ class BridgeClient:
         try:
             connection.request(method, path, body=body, headers=request_headers)
             response = connection.getresponse()
-            raw_body = response.read()
+            raw_body = response.read(self.max_response_bytes + 1)
+            if len(raw_body) > self.max_response_bytes:
+                raise BridgeError(
+                    "Bridge response exceeded the allowed size.",
+                    response.status,
+                    "response_too_large",
+                )
             try:
                 result = json.loads(raw_body.decode("utf-8")) if raw_body else {}
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
