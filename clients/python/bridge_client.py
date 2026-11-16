@@ -9,6 +9,7 @@ import time
 import uuid
 
 DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_REQUEST_BODY_BYTES = 256 * 1024
 
 
 class BridgeError(RuntimeError):
@@ -100,7 +101,13 @@ class BridgeClient:
         body = None
         if payload is not None:
             request_headers["Content-Type"] = "application/json"
-            body = json.dumps(payload, separators=(",", ":"))
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            if len(body) > MAX_REQUEST_BODY_BYTES:
+                raise BridgeError(
+                    "Bridge request body exceeds the allowed size.",
+                    413,
+                    "payload_too_large",
+                )
 
         connection = self.connection_factory(self._pipe_path())
         try:
