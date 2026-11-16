@@ -13,7 +13,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Verify repo constraints
         run: npm run verify
       - name: Test suite
         run: npm test
+      - name: Test Python bridge client
+        run: python -m unittest discover -s clients/python -p "test_*.py"
