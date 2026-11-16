@@ -5,8 +5,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const artifact = path.join(root, 'vscode-browser-bridge.vsix');
-const staging = path.join(root, '.vsix-staging');
+
+function collectFiles(directory) {
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .flatMap((entry) => {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'test') {
+          return [];
+        }
+        return collectFiles(filePath);
+      }
+      return entry.isFile() ? [filePath] : [];
+    });
+}
 
 function crc32Table() {
   const table = new Uint32Array(256);
@@ -102,24 +115,22 @@ function makeEocd(totalEntries, centralSize, centralOffset) {
   return eocd;
 }
 
-if (fs.existsSync(staging)) {
-  fs.rmSync(staging, { recursive: true, force: true });
-}
-fs.mkdirSync(staging, { recursive: true });
-fs.mkdirSync(path.join(staging, 'extension'), { recursive: true });
-
+function createPackage(outputPath) {
+const artifact = outputPath ? path.resolve(outputPath) : path.join(root, 'vscode-browser-bridge.vsix');
 const packageJson = fs.readFileSync(path.join(root, 'package.json'), 'utf8');
 const manifest = `<?xml version="1.0" encoding="utf-8"?>\n<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">\n  <Metadata>\n    <Identity Id="vscode-browser-bridge" Version="0.1.0" Language="en-US" Publisher="NeeharArora" />\n    <DisplayName>VS Code Browser Bridge</DisplayName>\n    <Description>A local Windows named-pipe bridge to Copilot-backed models.</Description>\n  </Metadata>\n  <Installation>\n    <InstallationTarget Id="Microsoft.VisualStudio.Code" />\n  </Installation>\n</PackageManifest>\n`;
 const contentTypes = `<?xml version="1.0" encoding="utf-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n  <Default Extension="xml" ContentType="application/xml"/>\n  <Override PartName="/extension.vsixmanifest" ContentType="application/vnd.code.vsixmanifest+xml"/>\n  <Override PartName="/extension/package.json" ContentType="application/json"/>\n</Types>\n`;
 
-fs.writeFileSync(path.join(staging, 'extension', 'package.json'), packageJson, 'utf8');
-fs.writeFileSync(path.join(staging, 'extension.vsixmanifest'), manifest, 'utf8');
-fs.writeFileSync(path.join(staging, '[Content_Types].xml'), contentTypes, 'utf8');
-
 const fileEntries = [
   { fileName: 'extension/package.json', data: Buffer.from(packageJson, 'utf8') },
+  { fileName: 'extension/README.md', data: fs.readFileSync(path.join(root, 'README.md')) },
+  { fileName: 'extension/LICENSE', data: fs.readFileSync(path.join(root, 'LICENSE')) },
   { fileName: 'extension.vsixmanifest', data: Buffer.from(manifest, 'utf8') },
-  { fileName: '[Content_Types].xml', data: Buffer.from(contentTypes, 'utf8') }
+  { fileName: '[Content_Types].xml', data: Buffer.from(contentTypes, 'utf8') },
+  ...collectFiles(path.join(root, 'src')).map((filePath) => ({
+    fileName: `extension/${path.relative(root, filePath).split(path.sep).join('/')}`,
+    data: fs.readFileSync(filePath)
+  }))
 ];
 
 const localParts = [];
@@ -139,5 +150,12 @@ const centralDirectorySize = centralParts.reduce((sum, chunk) => sum + chunk.len
 const eocd = makeEocd(fileEntries.length, centralDirectorySize, centralOffset);
 const zipBuffer = Buffer.concat([...localParts, ...centralParts, eocd]);
 fs.writeFileSync(artifact, zipBuffer);
-fs.rmSync(staging, { recursive: true, force: true });
-console.log(`Created ${artifact}`);
+return artifact;
+}
+
+if (require.main === module) {
+  const artifact = createPackage(process.argv[2]);
+  console.log(`Created ${artifact}`);
+}
+
+module.exports = { createPackage };
